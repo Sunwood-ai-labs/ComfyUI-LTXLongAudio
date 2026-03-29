@@ -20,6 +20,10 @@ git clone https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio.git
 
 Then restart ComfyUI.
 
+## Google Colab
+
+This repository is designed for the common Colab flow where custom nodes are installed with `git clone` into `ComfyUI/custom_nodes`.
+
 ## Current Status
 
 This is the initial public scaffold. The first two nodes are meant to support:
