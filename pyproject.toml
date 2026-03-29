@@ -1,10 +1,10 @@
 [project]
 name = "comfyui-ltxlongaudio"
-version = "0.1.0"
-description = "Minimal custom nodes for long-audio LTX workflows in ComfyUI"
+version = "0.2.0"
+description = "Custom nodes and compatibility shims for long-audio LTX workflows in ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

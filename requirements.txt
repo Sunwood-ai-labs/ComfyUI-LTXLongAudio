@@ -1,1 +1,1 @@
-# No additional third-party dependencies are required for the initial scaffold.
+torchaudio
