@@ -28,13 +28,17 @@ uv run python scripts/check_workflow_layout.py \
   samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
   --require-all-nodes-in-groups \
   --require-app-mode
+
+uv run python scripts/run_comfyui_api_smoke.py \
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --comfy-root /path/to/ComfyUI
 ```
 
 ## 実行前提
 
 - 最終動画プレビューや API smoke には `ffmpeg` が必要です。
 - 音声読込は `torchaudio` を使うため、ランタイム依存は `requirements.txt` に残しています。
-- Prompt API smoke は到達可能な ComfyUI、本体の入出力ディレクトリ、利用可能なデータベースパスを前提にしています。
+- Prompt API smoke は、このリポジトリが `ComfyUI/custom_nodes` 配下にある場合は周辺パスを自動検出し、それ以外では少なくとも `--comfy-root` を必要とします。
 
 ## 最初の確認手順
 

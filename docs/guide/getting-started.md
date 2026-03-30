@@ -28,13 +28,17 @@ uv run python scripts/check_workflow_layout.py \
   samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
   --require-all-nodes-in-groups \
   --require-app-mode
+
+uv run python scripts/run_comfyui_api_smoke.py \
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --comfy-root /path/to/ComfyUI
 ```
 
 ## Runtime expectations
 
 - `ffmpeg` must be available before you run final video preview or the API smoke script.
 - Audio loading uses `torchaudio`, which is why the runtime install stays in `requirements.txt`.
-- The prompt API smoke runner assumes a reachable ComfyUI installation, writable input/output directories, and a usable database path.
+- The prompt API smoke runner auto-detects surrounding paths when this repo is cloned under `ComfyUI/custom_nodes`. Otherwise pass at least `--comfy-root`.
 
 ## Recommended first pass
 

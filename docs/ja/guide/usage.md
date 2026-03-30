@@ -9,7 +9,7 @@
 | 項目 | 値 |
 | --- | --- |
 | フレームフォルダ既定値 | `samples/input/frames_pool` |
-| 音声ウィジェット既定値 | `HOWL AT THE HAIRPIN2.wav` |
+| 音声ウィジェット既定値 | `ltx-demo-tone.wav` |
 | App mode 入力 | `Frames Folder`, `Source Audio Upload`, `Segment Seconds`, `Random Seed` |
 | App mode 出力ノード | `LTXVideoCombine` |
 
@@ -21,7 +21,7 @@
 - `samples/input/demo_frames` は `192x108` の小さなデバッグ frame 群
 - `samples/input/ltx-demo-tone.wav` はスクリプト用の追跡済み fallback 音声
 
-推奨される長尺サンプル名は引き続き `HOWL AT THE HAIRPIN2.wav` です。長い音声が無い場合、API smoke は fallback tone を同じファイル名でステージして利用します。
+追跡済みの既定値は `ltx-demo-tone.wav` です。ローカルに長い `HOWL AT THE HAIRPIN2.wav` を置いている場合、API smoke はそれを優先しつつ、追跡済みアップロード名へコピーして利用します。
 
 ## 入力解決の挙動
 
@@ -47,5 +47,6 @@ uv run python scripts/check_workflow_layout.py \
 
 ```bash
 uv run python scripts/run_comfyui_api_smoke.py \
-  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --comfy-root /path/to/ComfyUI
 ```

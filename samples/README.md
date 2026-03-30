@@ -6,7 +6,7 @@ Expected runtime inputs:
 
 - The bundled workflow now opens with concrete sample defaults.
 - Default frame folder: `samples/input/frames_pool`
-- Default audio widget name: `HOWL AT THE HAIRPIN2.wav`
+- Default audio widget name: `ltx-demo-tone.wav`
 - You can still replace either value in App mode or the node graph.
 
 Bundled smoke-test assets:
@@ -45,7 +45,7 @@ The smoke workflow is App mode ready. Its exposed controls are:
 
 The generated result is a dummy long-audio still-video: the custom node splits the song into 20-second chunks, picks a deterministic random frame for each chunk from the selected folder, runs a dummy segment renderer for each chunk internally, concatenates all chunk audio and frame batches, and previews the final mp4 directly from the output node.
 
-If the optional longer `HOWL AT THE HAIRPIN2.wav` sample is missing, `scripts/run_comfyui_api_smoke.py` stages the tracked fallback tone file under the expected upload name for prompt API validation.
+If you keep an optional longer `HOWL AT THE HAIRPIN2.wav` sample locally, `scripts/run_comfyui_api_smoke.py` prefers it and stages it under the tracked upload name for prompt API validation.
 
 If App mode still shows older controls after you update the custom node, fully restart the ComfyUI backend or Desktop app before reopening the workflow.
 
@@ -53,5 +53,6 @@ You can also validate the exact workflow end-to-end through ComfyUI's `/prompt` 
 
 ```bash
 uv run python scripts/run_comfyui_api_smoke.py \
-  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --comfy-root /path/to/ComfyUI
 ```

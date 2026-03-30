@@ -9,7 +9,7 @@ Current checked expectations:
 | Item | Value |
 | --- | --- |
 | Frame folder default | `samples/input/frames_pool` |
-| Audio widget default | `HOWL AT THE HAIRPIN2.wav` |
+| Audio widget default | `ltx-demo-tone.wav` |
 | App mode inputs | `Frames Folder`, `Source Audio Upload`, `Segment Seconds`, `Random Seed` |
 | App mode output node | `LTXVideoCombine` |
 
@@ -21,7 +21,7 @@ Tracked sample assets stay intentionally light:
 - `samples/input/demo_frames` ships tiny debug stills at `192x108`.
 - `samples/input/ltx-demo-tone.wav` is the tracked fallback audio for scripted smoke runs.
 
-The recommended long-form sample filename remains `HOWL AT THE HAIRPIN2.wav`. If that longer file is missing, the API smoke runner automatically stages the fallback tone file under the expected upload name.
+The tracked default stays `ltx-demo-tone.wav`. If you keep a longer local sample named `HOWL AT THE HAIRPIN2.wav`, the API smoke runner prefers it and stages it under the tracked upload name.
 
 ## Input discovery behavior
 
@@ -47,5 +47,6 @@ Then use the live smoke script when a real ComfyUI install is available:
 
 ```bash
 uv run python scripts/run_comfyui_api_smoke.py \
-  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --comfy-root /path/to/ComfyUI
 ```

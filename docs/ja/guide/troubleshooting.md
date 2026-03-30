@@ -15,6 +15,7 @@
 - repository sample は folder 系では `samples/input/...` という形で見えます
 - 対話 UI での音声利用は、アップロード済み音声か runtime input 側の可視ファイルに依存します
 - smoke script は Prompt API 用に fallback 音声をステージできますが、通常 UI ではアップロードか実ファイルが必要です
+- repo が `ComfyUI/custom_nodes` 配下に無い場合、smoke script は `--comfy-root` を明示しないと runtime path を解決できません
 
 ## `ffmpeg` が見つからない
 

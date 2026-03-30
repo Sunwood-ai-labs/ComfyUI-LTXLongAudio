@@ -71,7 +71,7 @@ The checked-in workflow is ready for the common folder-plus-audio smoke pass:
 The bundled workflow ships with concrete defaults:
 
 - Frame folder: `samples/input/frames_pool`
-- Audio widget default: `HOWL AT THE HAIRPIN2.wav`
+- Audio widget default: `ltx-demo-tone.wav`
 
 The sample asset set stays intentionally lightweight so CPU-side smoke runs remain practical:
 
@@ -79,7 +79,7 @@ The sample asset set stays intentionally lightweight so CPU-side smoke runs rema
 - `samples/input/demo_frames` contains tiny `192x108` debug frames.
 - `samples/input/ltx-demo-tone.wav` remains available as the tracked fallback audio.
 
-For scripted smoke runs, `run_comfyui_api_smoke.py` stages the fallback tone under the expected widget filename when the longer local sample is absent.
+If you keep a longer local sample named `HOWL AT THE HAIRPIN2.wav`, the API smoke script prefers it and stages it under the tracked widget filename for prompt validation.
 
 More detail lives in [samples/README.md](samples/README.md) and the published guides:
 
@@ -148,7 +148,8 @@ uv run python scripts/check_workflow_layout.py \
   --require-app-mode
 
 uv run python scripts/run_comfyui_api_smoke.py \
-  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --comfy-root /path/to/ComfyUI
 ```
 
 The bundled smoke workflow includes `extra.linearData` and `extra.linearMode`, matching the current ComfyUI App mode builder behavior.

@@ -52,8 +52,8 @@ features:
 
 - `uv run pytest`
 - `uv run python scripts/check_workflow_layout.py samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json --require-all-nodes-in-groups --require-app-mode`
-- `uv run python scripts/run_comfyui_api_smoke.py --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
+- `uv run python scripts/run_comfyui_api_smoke.py --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json --comfy-root /path/to/ComfyUI`
 
 ::: tip
-`run_comfyui_api_smoke.py` はローカルに `HOWL AT THE HAIRPIN2.wav` があればそれを優先し、無ければ追跡済みの `samples/input/ltx-demo-tone.wav` を期待名へコピーして使用します。
+`run_comfyui_api_smoke.py` の追跡済み既定値は `ltx-demo-tone.wav` です。ローカルに長い `HOWL AT THE HAIRPIN2.wav` があれば、それを優先しつつ追跡済みウィジェット名へコピーして使用します。
 :::

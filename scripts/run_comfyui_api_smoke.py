@@ -16,29 +16,115 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_COMFY_ROOT = Path(r"D:\ComfyUI")
-DEFAULT_COMFY_MAIN = Path(r"C:\Users\Aslan\AppData\Local\Programs\ComfyUI\resources\ComfyUI\main.py")
-DEFAULT_COMFY_PYTHON = Path(r"D:\ComfyUI\.venv\Scripts\python.exe")
-DEFAULT_USER_DIR = Path(r"D:\ComfyUI\user")
-DEFAULT_INPUT_DIR = Path(r"D:\ComfyUI\input")
-DEFAULT_OUTPUT_DIR = Path(r"D:\ComfyUI\output")
-DEFAULT_TEMP_DIR = Path(r"D:\ComfyUI")
-DEFAULT_DATABASE_URL = "sqlite:///D:/ComfyUI/user/comfyui_ci.db"
 CUSTOM_NODE_REPO = Path(__file__).resolve().parents[1]
 DEFAULT_WORKFLOW = CUSTOM_NODE_REPO / "samples" / "workflows" / "LTXLongAudio_CustomNodes_SmokeTest.json"
+TRACKED_SAMPLE_AUDIO_NAME = "ltx-demo-tone.wav"
+OPTIONAL_LONG_SAMPLE_AUDIO_NAME = "HOWL AT THE HAIRPIN2.wav"
+
+
+def _env_path(name: str) -> Path | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def discover_comfy_root() -> Path | None:
+    env_root = _env_path("COMFYUI_ROOT")
+    if env_root is not None:
+        return env_root
+    if CUSTOM_NODE_REPO.parent.name == "custom_nodes":
+        return CUSTOM_NODE_REPO.parent.parent
+    return None
+
+
+def default_comfy_main(comfy_root: Path | None) -> Path | None:
+    env_main = _env_path("COMFYUI_MAIN")
+    if env_main is not None:
+        return env_main
+    if comfy_root is None:
+        return None
+    candidate = comfy_root / "main.py"
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def default_comfy_python(comfy_root: Path | None) -> Path | None:
+    env_python = _env_path("COMFYUI_PYTHON")
+    if env_python is not None:
+        return env_python
+    if comfy_root is None:
+        return None
+    candidates = [
+        comfy_root / ".venv" / "Scripts" / "python.exe",
+        comfy_root / ".venv" / "bin" / "python",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def default_user_directory(comfy_root: Path | None) -> Path | None:
+    env_value = _env_path("COMFYUI_USER_DIRECTORY")
+    if env_value is not None:
+        return env_value
+    if comfy_root is None:
+        return None
+    return comfy_root / "user"
+
+
+def default_input_directory(comfy_root: Path | None) -> Path | None:
+    env_value = _env_path("COMFYUI_INPUT_DIRECTORY")
+    if env_value is not None:
+        return env_value
+    if comfy_root is None:
+        return None
+    return comfy_root / "input"
+
+
+def default_output_directory(comfy_root: Path | None) -> Path | None:
+    env_value = _env_path("COMFYUI_OUTPUT_DIRECTORY")
+    if env_value is not None:
+        return env_value
+    if comfy_root is None:
+        return None
+    return comfy_root / "output"
+
+
+def default_temp_directory(comfy_root: Path | None) -> Path | None:
+    env_value = _env_path("COMFYUI_TEMP_DIRECTORY")
+    if env_value is not None:
+        return env_value
+    return comfy_root
+
+
+def default_database_url(user_directory: Path | None) -> str | None:
+    env_value = os.environ.get("COMFYUI_DATABASE_URL")
+    if env_value:
+        return env_value
+    if user_directory is None:
+        return None
+    return f"sqlite:///{user_directory.as_posix()}/comfyui_ci.db"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a real ComfyUI /prompt smoke test from a workflow JSON.")
     parser.add_argument("--workflow", type=Path, default=DEFAULT_WORKFLOW)
-    parser.add_argument("--comfy-root", type=Path, default=DEFAULT_COMFY_ROOT)
-    parser.add_argument("--comfy-main", type=Path, default=DEFAULT_COMFY_MAIN)
-    parser.add_argument("--python-exe", type=Path, default=DEFAULT_COMFY_PYTHON)
-    parser.add_argument("--user-directory", type=Path, default=DEFAULT_USER_DIR)
-    parser.add_argument("--input-directory", type=Path, default=DEFAULT_INPUT_DIR)
-    parser.add_argument("--output-directory", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--temp-directory", type=Path, default=DEFAULT_TEMP_DIR)
-    parser.add_argument("--database-url", default=DEFAULT_DATABASE_URL)
+    parser.add_argument(
+        "--comfy-root",
+        type=Path,
+        default=None,
+        help="ComfyUI root. Auto-detected when the repo lives under ComfyUI/custom_nodes or via COMFYUI_ROOT.",
+    )
+    parser.add_argument("--comfy-main", type=Path, default=None, help="Path to ComfyUI main.py. Auto-detected from --comfy-root when possible.")
+    parser.add_argument("--python-exe", type=Path, default=None, help="Path to the ComfyUI Python executable. Auto-detected from --comfy-root when possible.")
+    parser.add_argument("--user-directory", type=Path, default=None, help="ComfyUI user directory. Defaults to <comfy-root>/user.")
+    parser.add_argument("--input-directory", type=Path, default=None, help="ComfyUI input directory. Defaults to <comfy-root>/input.")
+    parser.add_argument("--output-directory", type=Path, default=None, help="ComfyUI output directory. Defaults to <comfy-root>/output.")
+    parser.add_argument("--temp-directory", type=Path, default=None, help="ComfyUI temp directory. Defaults to --comfy-root.")
+    parser.add_argument("--database-url", default=None, help="Database URL. Defaults to COMFYUI_DATABASE_URL or a sqlite file under the user directory.")
     parser.add_argument("--startup-timeout", type=float, default=60.0)
     parser.add_argument("--execution-timeout", type=float, default=120.0)
     parser.add_argument("--port", type=int, default=0, help="Optional fixed port. Use 0 to auto-pick a free port.")
@@ -49,6 +135,53 @@ def parse_args() -> argparse.Namespace:
         help="Fill blank workflow inputs with demo assets. By default the smoke test requires valid workflow defaults.",
     )
     return parser.parse_args()
+
+
+def resolve_runtime_args(args: argparse.Namespace) -> argparse.Namespace:
+    comfy_root = args.comfy_root or discover_comfy_root()
+    comfy_main = args.comfy_main or default_comfy_main(comfy_root)
+    python_exe = args.python_exe or default_comfy_python(comfy_root)
+    user_directory = args.user_directory or default_user_directory(comfy_root)
+    input_directory = args.input_directory or default_input_directory(comfy_root)
+    output_directory = args.output_directory or default_output_directory(comfy_root)
+    temp_directory = args.temp_directory or default_temp_directory(comfy_root)
+    database_url = args.database_url or default_database_url(user_directory)
+
+    missing = []
+    if comfy_root is None:
+        missing.append("--comfy-root")
+    if comfy_main is None:
+        missing.append("--comfy-main")
+    if python_exe is None:
+        missing.append("--python-exe")
+    if user_directory is None:
+        missing.append("--user-directory")
+    if input_directory is None:
+        missing.append("--input-directory")
+    if output_directory is None:
+        missing.append("--output-directory")
+    if temp_directory is None:
+        missing.append("--temp-directory")
+    if database_url is None:
+        missing.append("--database-url")
+
+    if missing:
+        raise RuntimeError(
+            "Unable to resolve the ComfyUI runtime. Either clone this repo under ComfyUI/custom_nodes, "
+            "set COMFYUI_ROOT (and related env vars), or pass the missing flags explicitly: "
+            + ", ".join(missing)
+        )
+
+    resolved = argparse.Namespace(**vars(args))
+    resolved.comfy_root = Path(comfy_root)
+    resolved.comfy_main = Path(comfy_main)
+    resolved.python_exe = Path(python_exe)
+    resolved.user_directory = Path(user_directory)
+    resolved.input_directory = Path(input_directory)
+    resolved.output_directory = Path(output_directory)
+    resolved.temp_directory = Path(temp_directory)
+    resolved.database_url = str(database_url)
+    return resolved
 
 
 def pick_free_port() -> int:
@@ -267,8 +400,8 @@ def discover_ffmpeg(python_exe: Path, explicit_path: Path | None) -> Path | None
 
 
 def choose_sample_audio_file() -> Path:
-    preferred = CUSTOM_NODE_REPO / "samples" / "input" / "HOWL AT THE HAIRPIN2.wav"
-    fallback = CUSTOM_NODE_REPO / "samples" / "input" / "ltx-demo-tone.wav"
+    preferred = CUSTOM_NODE_REPO / "samples" / "input" / OPTIONAL_LONG_SAMPLE_AUDIO_NAME
+    fallback = CUSTOM_NODE_REPO / "samples" / "input" / TRACKED_SAMPLE_AUDIO_NAME
     if preferred.exists():
         return preferred
     if fallback.exists():
@@ -297,7 +430,7 @@ def stage_default_input_assets(input_directory: Path) -> dict[str, Any]:
     input_directory.mkdir(parents=True, exist_ok=True)
 
     audio_source = choose_sample_audio_file()
-    staged_audio = input_directory / "HOWL AT THE HAIRPIN2.wav"
+    staged_audio = input_directory / TRACKED_SAMPLE_AUDIO_NAME
     try:
         shutil.copy2(audio_source, staged_audio)
     except PermissionError:
@@ -480,7 +613,7 @@ def summarize_video_previews(history_entry: dict[str, Any], workflow_prompt: dic
 
 
 def main() -> int:
-    args = parse_args()
+    args = resolve_runtime_args(parse_args())
     node_registry = load_local_node_registry()
     prompt, _selected_widgets = workflow_to_prompt(args.workflow, node_registry=node_registry)
     staged_assets = stage_default_input_assets(args.input_directory)

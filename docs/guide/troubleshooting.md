@@ -15,6 +15,7 @@ Remember how discovery works:
 - repository sample files appear with the `samples/input/...` prefix for folder-style entries
 - uploaded audio still relies on what is visible to ComfyUI's input system
 - the smoke script can stage fallback audio for prompt API validation, but the interactive UI still expects either an uploaded audio file or a matching runtime input asset
+- if the repo is outside `ComfyUI/custom_nodes`, pass `--comfy-root` explicitly to the smoke script so runtime paths resolve correctly
 
 ## `ffmpeg` is missing
 

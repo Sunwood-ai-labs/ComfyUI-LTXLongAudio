@@ -112,7 +112,7 @@
         "Node name for S&R": "LoadAudio"
       },
       "widgets_values": [
-        "HOWL AT THE HAIRPIN2.wav"
+        "ltx-demo-tone.wav"
       ],
       "title": "Source Audio Upload"
     },

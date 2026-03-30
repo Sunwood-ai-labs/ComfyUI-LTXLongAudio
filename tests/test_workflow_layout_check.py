@@ -54,7 +54,7 @@ def test_sample_workflow_defaults_are_populated():
     assert frames_node["type"] == "LTXLoadImages"
     assert frames_node["widgets_values"][0] == "samples/input/frames_pool"
     assert audio_node["type"] == "LoadAudio"
-    assert audio_node["widgets_values"][0] == "HOWL AT THE HAIRPIN2.wav"
+    assert audio_node["widgets_values"][0] == "ltx-demo-tone.wav"
 
 
 def test_layout_checker_reports_overlaps(tmp_path):

@@ -52,8 +52,8 @@ The workflow currently analyzes to `3` groups and `9` nodes, with one final outp
 
 - `uv run pytest`
 - `uv run python scripts/check_workflow_layout.py samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json --require-all-nodes-in-groups --require-app-mode`
-- `uv run python scripts/run_comfyui_api_smoke.py --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
+- `uv run python scripts/run_comfyui_api_smoke.py --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json --comfy-root /path/to/ComfyUI`
 
 ::: tip
-`run_comfyui_api_smoke.py` prefers a local `HOWL AT THE HAIRPIN2.wav` sample when it exists, then falls back to the tracked `samples/input/ltx-demo-tone.wav` asset and stages it under the expected upload filename.
+`run_comfyui_api_smoke.py` keeps `ltx-demo-tone.wav` as the tracked default. If you also keep a longer local `HOWL AT THE HAIRPIN2.wav`, the script prefers it and stages it under the tracked widget filename.
 :::
