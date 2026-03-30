@@ -125,6 +125,8 @@ def spec_uses_widget(spec: Any) -> bool:
 
 
 def input_schema_map(node_class: Any) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    if node_class is None:
+        return {}, []
     input_types = node_class.INPUT_TYPES()
     schema_map: dict[str, dict[str, Any]] = {}
     widget_order: list[str] = []
@@ -148,8 +150,14 @@ def workflow_to_prompt(workflow_path: Path, *, node_registry: dict[str, Any]) ->
     for node in sorted(workflow.get("nodes", []), key=lambda item: int(item["id"])):
         node_id = str(node["id"])
         node_type = node["type"]
-        node_class = node_registry[node_type]
+        node_class = node_registry.get(node_type)
         schema_map, widget_order = input_schema_map(node_class)
+        if node_class is None:
+            widget_order = [
+                input_def.get("name")
+                for input_def in node.get("inputs", [])
+                if isinstance(input_def, dict) and input_def.get("link") is None and input_def.get("name")
+            ]
         widget_values = node.get("widgets_values", [])
         widget_value_map = {
             widget_name: widget_values[index]
@@ -323,7 +331,7 @@ def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, An
                 selected_directory = choose_sample_directory_value(base_url)
             inputs["directory"] = selected_directory
 
-        if class_type == "LTXLoadAudioUpload" and not inputs.get("audio"):
+        if class_type in {"LTXLoadAudioUpload", "LoadAudio"} and not inputs.get("audio"):
             if uploaded_audio_name is None:
                 uploaded_audio_name = upload_input_file(base_url, choose_sample_audio_file())
             inputs["audio"] = uploaded_audio_name
@@ -336,7 +344,10 @@ def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, An
 
 
 def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    audio_info = json_request("GET", f"{base_url}/object_info/LTXLoadAudioUpload", timeout=5.0)["LTXLoadAudioUpload"]
+    audio_node_name = "LTXLoadAudioUpload" if any(
+        node["class_type"] == "LTXLoadAudioUpload" for node in workflow_prompt.values()
+    ) else "LoadAudio"
+    audio_info = json_request("GET", f"{base_url}/object_info/{audio_node_name}", timeout=5.0)[audio_node_name]
     image_upload_info = json_request("GET", f"{base_url}/object_info/LTXLoadImageUpload", timeout=5.0)["LTXLoadImageUpload"]
 
     audio_spec = audio_info["input"]["required"]["audio"]
@@ -356,7 +367,7 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
     for node in workflow_prompt.values():
         class_type = node["class_type"]
         inputs = node["inputs"]
-        if class_type == "LTXLoadAudioUpload":
+        if class_type in {"LTXLoadAudioUpload", "LoadAudio"}:
             audio_value = inputs.get("audio")
             if isinstance(audio_value, str) and audio_value not in audio_options:
                 raise RuntimeError(f"Audio option {audio_value!r} not available: {audio_options!r}")

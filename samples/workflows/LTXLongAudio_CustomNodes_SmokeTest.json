@@ -1,8 +1,8 @@
 {
   "id": "b31f5f4a-cb6f-47cf-b0cf-ltxlongaudio-smoke",
   "revision": 2,
-  "last_node_id": 17,
-  "last_link_id": 25,
+  "last_node_id": 18,
+  "last_link_id": 26,
   "nodes": [
     {
       "id": 1,
@@ -83,14 +83,14 @@
     },
     {
       "id": 2,
-      "type": "LTXLoadAudioUpload",
+      "type": "LoadAudio",
       "pos": [
         -1440,
         300
       ],
       "size": [
         320,
-        180
+        90
       ],
       "flags": {},
       "order": 1,
@@ -100,43 +100,23 @@
           "name": "audio",
           "type": "COMBO",
           "link": null
-        },
-        {
-          "name": "start_time",
-          "type": "FLOAT",
-          "link": null
-        },
-        {
-          "name": "duration",
-          "type": "FLOAT",
-          "link": null
         }
       ],
       "outputs": [
         {
-          "name": "audio",
+          "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            13
-          ]
-        },
-        {
-          "name": "duration",
-          "type": "FLOAT",
-          "links": [
-            1
+            13,
+            26
           ]
         }
       ],
       "properties": {
-        "Node name for S&R": "LTXLoadAudioUpload",
-        "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "working-tree"
+        "Node name for S&R": "LoadAudio"
       },
       "widgets_values": [
-        "",
-        0,
-        0
+        ""
       ],
       "title": "Source Audio Upload"
     },
@@ -937,13 +917,51 @@
         true
       ],
       "title": "Video Combine (Smoke Test)"
+    },
+    {
+      "id": 18,
+      "type": "LTXAudioDuration",
+      "pos": [
+        -1100,
+        350
+      ],
+      "size": [
+        220,
+        86
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 26
+        }
+      ],
+      "outputs": [
+        {
+          "name": "duration",
+          "type": "FLOAT",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXAudioDuration",
+        "cnr_id": "comfyui-ltxlongaudio",
+        "ver": "working-tree"
+      },
+      "widgets_values": [],
+      "title": "Source Audio Duration"
     }
   ],
   "links": [
     [
       1,
-      2,
-      1,
+      18,
+      0,
       8,
       0,
       "FLOAT"
@@ -1139,6 +1157,14 @@
       17,
       4,
       "FLOAT"
+    ],
+    [
+      26,
+      2,
+      0,
+      18,
+      0,
+      "AUDIO"
     ]
   ],
   "groups": [

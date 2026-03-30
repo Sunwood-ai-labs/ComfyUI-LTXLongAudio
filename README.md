@@ -39,7 +39,7 @@ This repository is designed for the common Colab flow where custom nodes are ins
 
 The bundled smoke workflow is folder-plus-audio:
 
-- upload one song from App mode or the node graph
+- upload one song with the built-in `LoadAudio` control
 - choose one frame folder from the ComfyUI input list
 - keep `ffmpeg` available in the runtime
 
@@ -50,6 +50,8 @@ The bundled smoke workflow is folder-plus-audio:
 - Layout checker: `scripts/check_workflow_layout.py`
 
 The bundled smoke workflow no longer hardcodes file paths. It opens with a blank frame-folder selector and a blank audio selector, and the API smoke script injects demo assets at runtime.
+
+The sample uses ComfyUI's built-in `LoadAudio` node for the upload widget, plus `LTXAudioDuration` and `LTXAudioSlice` for long-audio helpers. This keeps the Desktop and App mode upload UI reliable while still testing the custom long-audio logic.
 
 If App mode still shows stale controls after updating this repository, fully restart the ComfyUI backend or Desktop app. A hot reload can keep old custom-node input schemas alive.
 

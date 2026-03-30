@@ -906,6 +906,23 @@ class LTXAudioSlice:
         return {"waveform": sliced, "sample_rate": sample_rate}, actual_duration
 
 
+class LTXAudioDuration:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"audio": ("AUDIO",)}}
+
+    RETURN_TYPES = ("FLOAT",)
+    RETURN_NAMES = ("duration",)
+    FUNCTION = "get_duration"
+    CATEGORY = "LTX/Workflow"
+
+    def get_duration(self, audio):
+        waveform = audio["waveform"]
+        sample_rate = max(int(audio["sample_rate"]), 1)
+        duration = float(waveform.shape[-1] / sample_rate)
+        return (duration,)
+
+
 class CompatLoadImages:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1490,6 +1507,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXForLoopEnd": CompatForLoopEnd,
     "LTXLoadAudioUpload": CompatLoadAudioUpload,
     "LTXAudioSlice": LTXAudioSlice,
+    "LTXAudioDuration": LTXAudioDuration,
     "LTXLoadImages": CompatLoadImages,
     "LTXAudioConcatenate": CompatAudioConcatenate,
     "LTXIntConstant": CompatIntConstant,

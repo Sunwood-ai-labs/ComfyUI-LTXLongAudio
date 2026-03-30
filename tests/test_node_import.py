@@ -23,6 +23,7 @@ def test_node_module_exports():
     assert "LTXForLoopStart" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopEnd" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioSlice" in module.NODE_CLASS_MAPPINGS
+    assert "LTXAudioDuration" in module.NODE_CLASS_MAPPINGS
     assert "LTXVideoCombine" in module.NODE_CLASS_MAPPINGS
     assert "LTXSimpleCalculator" in module.NODE_CLASS_MAPPINGS
     for legacy in ("easy forLoopStart", "VHS_VideoCombine", "SimpleCalculatorKJ"):
@@ -68,6 +69,9 @@ def test_pure_node_behaviors():
         )
         assert sliced_audio["waveform"].shape[-1] == 12
         assert sliced_duration == 1.5
+
+        audio_duration = module.NODE_CLASS_MAPPINGS["LTXAudioDuration"]()
+        assert audio_duration.get_duration({"waveform": waveform, "sample_rate": sample_rate}) == (4.0,)
 
 
 def test_sample_inputs_are_listed_and_resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

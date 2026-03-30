@@ -16,7 +16,8 @@ Local one-off files can still be dropped into `samples/input` or your ComfyUI `i
 
 The workflow exercises:
 
-- `LTXLoadAudioUpload`
+- `LoadAudio`
+- `LTXAudioDuration`
 - `LTXLoadImages`
 - `LTXLongAudioSegmentInfo`
 - `LTXRandomImageIndex`

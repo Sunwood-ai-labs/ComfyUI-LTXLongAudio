@@ -25,8 +25,9 @@ def test_sample_workflow_layout_passes():
 
     assert report["issues"] == []
     assert report["group_count"] == 3
-    assert report["node_count"] == 17
+    assert report["node_count"] == 18
     assert report["node_group_matches"]["Frames Folder"] == ["Inputs"]
+    assert report["node_group_matches"]["Source Audio Duration"] == ["Inputs"]
     assert report["node_group_matches"]["Video Combine (Smoke Test)"] == ["Output"]
     assert report["app_mode"]["enabled"] is True
     assert report["app_mode"]["selected_inputs"] == [
