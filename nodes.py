@@ -227,6 +227,24 @@ def _list_input_audio_files() -> list[str]:
     return sorted(files, key=str.casefold)
 
 
+def _list_input_image_files() -> list[str]:
+    files = set()
+
+    input_dir = pathlib.Path(_input_directory())
+    if input_dir.is_dir():
+        for item in input_dir.iterdir():
+            if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
+                files.add(item.name)
+
+    sample_input_dir = _sample_input_directory()
+    if sample_input_dir.is_dir():
+        for item in sample_input_dir.iterdir():
+            if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
+                files.add(_repo_relative_path(item))
+
+    return sorted(files, key=str.casefold)
+
+
 def _list_input_subdirectories() -> list[str]:
     directories = set()
 
@@ -243,6 +261,18 @@ def _list_input_subdirectories() -> list[str]:
                 directories.add(_repo_relative_path(item))
 
     return sorted(directories, key=str.casefold)
+
+
+def _combo_values_with_blank(values: list[str]) -> list[str]:
+    ordered_values = [""] + [value for value in values if value]
+    seen = set()
+    deduped = []
+    for value in ordered_values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
 
 
 def _hash_path(path: str) -> str:
@@ -715,12 +745,78 @@ class CompatForLoopEnd:
         return {"result": tuple(while_close.out(index) for index in range(1, MAX_FLOW_NUM)), "expand": graph.finalize()}
 
 
+class CompatLoadImageUpload:
+    @classmethod
+    def INPUT_TYPES(cls):
+        files = _combo_values_with_blank(_list_input_image_files())
+        return {"required": {"image": (files, {"image_upload": True})}}
+
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("IMAGE", "MASK")
+    FUNCTION = "load_image"
+    CATEGORY = "LTX/Workflow"
+
+    def load_image(self, image):
+        _require("numpy", np)
+        _require("torch", torch)
+        _require("Pillow", Image)
+        if not image:
+            raise ValueError("Upload or select an image before running this node.")
+        image_path = _resolve_input_path(image)
+        loaded_image = ImageOps.exif_transpose(Image.open(image_path)).convert("RGBA")
+        array = np.asarray(loaded_image).astype("float32") / 255.0
+        rgb = torch.from_numpy(array[:, :, :3]).unsqueeze(0)
+        mask = torch.from_numpy(1.0 - array[:, :, 3]).unsqueeze(0)
+        return rgb, mask
+
+    @classmethod
+    def IS_CHANGED(cls, image, **kwargs):
+        return _hash_path(_resolve_input_path(image)) if image else "blank"
+
+
+class LTXBatchUploadedFrames:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {"image_1": ("IMAGE",)},
+            "optional": {
+                "image_2": ("IMAGE",),
+                "image_3": ("IMAGE",),
+                "image_4": ("IMAGE",),
+                "image_5": ("IMAGE",),
+                "image_6": ("IMAGE",),
+                "image_7": ("IMAGE",),
+                "image_8": ("IMAGE",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT")
+    RETURN_NAMES = ("IMAGE", "frame_count")
+    FUNCTION = "batch_images"
+    CATEGORY = "LTX/LongAudio"
+
+    def batch_images(self, image_1, **kwargs):
+        _require("torch", torch)
+        images = [image_1]
+        for key in ("image_2", "image_3", "image_4", "image_5", "image_6", "image_7", "image_8"):
+            value = kwargs.get(key)
+            if value is not None:
+                images.append(value)
+
+        expected_shape = images[0].shape[1:3]
+        for image in images[1:]:
+            if image.shape[1:3] != expected_shape:
+                raise ValueError("All uploaded frames must share the same size.")
+
+        return torch.cat(images, dim=0), len(images)
+
+
 class CompatLoadAudioUpload:
     @classmethod
     def INPUT_TYPES(cls):
-        files = _list_input_audio_files() or [""]
+        files = _combo_values_with_blank(_list_input_audio_files())
         return {
-            "required": {"audio": (files,)},
+            "required": {"audio": (files, {"audio_upload": True})},
             "optional": {
                 "start_time": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10_000_000.0, "step": 0.01}),
                 "duration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10_000_000.0, "step": 0.01}),
@@ -734,6 +830,8 @@ class CompatLoadAudioUpload:
 
     def load_audio(self, audio, start_time=0.0, duration=0.0):
         _require("torchaudio", torchaudio)
+        if not audio:
+            raise ValueError("Upload or select an audio file before running this node.")
         path = _resolve_input_path(audio)
         try:
             if hasattr(torchaudio, "info"):
@@ -768,7 +866,38 @@ class CompatLoadAudioUpload:
 
     @classmethod
     def IS_CHANGED(cls, audio, **kwargs):
-        return _hash_path(_resolve_input_path(audio))
+        return _hash_path(_resolve_input_path(audio)) if audio else "blank"
+
+
+class LTXAudioSlice:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO",),
+                "start_time": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10_000_000.0, "step": 0.01}),
+                "duration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10_000_000.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("AUDIO", "FLOAT")
+    RETURN_NAMES = ("audio", "duration")
+    FUNCTION = "slice_audio"
+    CATEGORY = "LTX/Workflow"
+
+    def slice_audio(self, audio, start_time=0.0, duration=0.0):
+        _require("torch", torch)
+        sample_rate = max(int(audio["sample_rate"]), 1)
+        waveform = audio["waveform"]
+        start_frame = max(0, int(float(start_time) * sample_rate))
+        requested_frames = 0 if float(duration) <= 0 else max(1, int(float(duration) * sample_rate))
+        if requested_frames > 0:
+            end_frame = min(waveform.shape[-1], start_frame + requested_frames)
+        else:
+            end_frame = waveform.shape[-1]
+        sliced = waveform[..., start_frame:end_frame].contiguous()
+        actual_duration = float(sliced.shape[-1] / sample_rate)
+        return {"waveform": sliced, "sample_rate": sample_rate}, actual_duration
 
 
 class CompatLoadImages:
@@ -1338,6 +1467,8 @@ class CompatVideoCombine:
 NODE_CLASS_MAPPINGS = {
     "LTXLongAudioSegmentInfo": LTXLongAudioSegmentInfo,
     "LTXRandomImageIndex": LTXRandomImageIndex,
+    "LTXLoadImageUpload": CompatLoadImageUpload,
+    "LTXBatchUploadedFrames": LTXBatchUploadedFrames,
     "LTXShowAnything": CompatShowAnything,
     "LTXSimpleMath": CompatSimpleMath,
     "LTXSeedList": CompatSeedList,
@@ -1350,6 +1481,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXForLoopStart": CompatForLoopStart,
     "LTXForLoopEnd": CompatForLoopEnd,
     "LTXLoadAudioUpload": CompatLoadAudioUpload,
+    "LTXAudioSlice": LTXAudioSlice,
     "LTXLoadImages": CompatLoadImages,
     "LTXAudioConcatenate": CompatAudioConcatenate,
     "LTXIntConstant": CompatIntConstant,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import mimetypes
 import os
 import shutil
 import socket
@@ -57,6 +58,37 @@ def json_request(method: str, url: str, payload: dict[str, Any] | None = None, t
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def multipart_request(url: str, *, file_path: Path, timeout: float = 20.0) -> Any:
+    boundary = f"----CodexBoundary{int(time.time() * 1000)}"
+    mime_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    body = bytearray()
+
+    def write_field(name: str, value: str) -> None:
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(value.encode("utf-8"))
+        body.extend(b"\r\n")
+
+    write_field("overwrite", "1")
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(
+        f'Content-Disposition: form-data; name="image"; filename="{file_path.name}"\r\n'.encode("utf-8")
+    )
+    body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8"))
+    body.extend(file_path.read_bytes())
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+    request = urllib.request.Request(
+        url,
+        data=bytes(body),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -205,12 +237,84 @@ def discover_ffmpeg(python_exe: Path, explicit_path: Path | None) -> Path | None
     return None
 
 
+def choose_sample_audio_file() -> Path:
+    preferred = CUSTOM_NODE_REPO / "samples" / "input" / "HOWL AT THE HAIRPIN2.wav"
+    fallback = CUSTOM_NODE_REPO / "samples" / "input" / "ltx-demo-tone.wav"
+    if preferred.exists():
+        return preferred
+    if fallback.exists():
+        return fallback
+    raise FileNotFoundError("No sample audio file found for API smoke test.")
+
+
+def choose_sample_frame_files() -> list[Path]:
+    preferred_dir = CUSTOM_NODE_REPO / "samples" / "input" / "frames_pool"
+    fallback_dir = CUSTOM_NODE_REPO / "samples" / "input" / "demo_frames"
+    target_dir = preferred_dir if preferred_dir.is_dir() else fallback_dir
+    frame_files = sorted(
+        [
+            path
+            for path in target_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        ],
+        key=lambda item: item.name.casefold(),
+    )
+    if not frame_files:
+        raise FileNotFoundError("No sample frame images found for API smoke test.")
+    return frame_files
+
+
+def upload_input_file(base_url: str, file_path: Path) -> str:
+    response = multipart_request(f"{base_url}/upload/image", file_path=file_path, timeout=20.0)
+    uploaded_name = response.get("name")
+    if not uploaded_name:
+        raise RuntimeError(f"Unexpected upload response for {file_path}: {response!r}")
+    subfolder = response.get("subfolder", "")
+    return f"{subfolder}/{uploaded_name}" if subfolder else uploaded_name
+
+
+def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    uploaded_audio_name: str | None = None
+    uploaded_frame_names: list[str] = []
+    image_node_ids = [
+        node_id
+        for node_id in sorted(workflow_prompt, key=int)
+        if workflow_prompt[node_id]["class_type"] == "LTXLoadImageUpload"
+    ]
+
+    if image_node_ids:
+        uploaded_frame_names = [upload_input_file(base_url, path) for path in choose_sample_frame_files()]
+        for index, node_id in enumerate(image_node_ids):
+            inputs = workflow_prompt[node_id]["inputs"]
+            if not inputs.get("image"):
+                inputs["image"] = uploaded_frame_names[index % len(uploaded_frame_names)]
+
+    for node_id in sorted(workflow_prompt, key=int):
+        node = workflow_prompt[node_id]
+        inputs = node["inputs"]
+        class_type = node["class_type"]
+
+        if class_type == "LTXLoadAudioUpload" and not inputs.get("audio"):
+            if uploaded_audio_name is None:
+                uploaded_audio_name = upload_input_file(base_url, choose_sample_audio_file())
+            inputs["audio"] = uploaded_audio_name
+
+    return {"uploaded_audio": uploaded_audio_name, "uploaded_frames": uploaded_frame_names}
+
+
 def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
     audio_info = json_request("GET", f"{base_url}/object_info/LTXLoadAudioUpload", timeout=5.0)["LTXLoadAudioUpload"]
-    image_info = json_request("GET", f"{base_url}/object_info/LTXLoadImages", timeout=5.0)["LTXLoadImages"]
+    image_upload_info = json_request("GET", f"{base_url}/object_info/LTXLoadImageUpload", timeout=5.0)["LTXLoadImageUpload"]
 
     audio_options = audio_info["input"]["required"]["audio"][0]
-    directory_options = image_info["input"]["required"]["directory"][0]
+    image_options = image_upload_info["input"]["required"]["image"][0]
+    directory_options: list[str] = []
+    directory_info = {}
+    try:
+        directory_info = json_request("GET", f"{base_url}/object_info/LTXLoadImages", timeout=5.0).get("LTXLoadImages", {})
+        directory_options = directory_info.get("input", {}).get("required", {}).get("directory", [[]])[0]
+    except Exception:  # noqa: BLE001
+        directory_info = {}
 
     for node in workflow_prompt.values():
         class_type = node["class_type"]
@@ -219,12 +323,16 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
             audio_value = inputs.get("audio")
             if isinstance(audio_value, str) and audio_value not in audio_options:
                 raise RuntimeError(f"Audio option {audio_value!r} not available: {audio_options!r}")
+        if class_type == "LTXLoadImageUpload":
+            image_value = inputs.get("image")
+            if isinstance(image_value, str) and image_value not in image_options:
+                raise RuntimeError(f"Image option {image_value!r} not available: {image_options!r}")
         if class_type == "LTXLoadImages":
             directory_value = inputs.get("directory")
             if isinstance(directory_value, str) and directory_value not in directory_options:
                 raise RuntimeError(f"Directory option {directory_value!r} not available: {directory_options!r}")
 
-    return {"audio_options": audio_options, "directory_options": directory_options}
+    return {"audio_options": audio_options, "image_options": image_options, "directory_options": directory_options}
 
 
 def main() -> int:
@@ -277,6 +385,7 @@ def main() -> int:
         )
         try:
             wait_for_object_info(base_url, timeout=args.startup_timeout)
+            upload_info = apply_smoke_overrides(base_url, prompt)
             combo_info = validate_expected_combo_options(base_url, prompt)
 
             response = json_request("POST", f"{base_url}/prompt", {"prompt": prompt}, timeout=20.0)
@@ -296,6 +405,7 @@ def main() -> int:
                 "history_keys": sorted(history_entry.keys()),
                 "output_nodes": sorted(history_entry.get("outputs", {}).keys()),
                 "combo_info": combo_info,
+                "upload_info": upload_info,
                 "ffmpeg_path": str(ffmpeg_path) if ffmpeg_path is not None else None,
                 "log_path": str(log_path),
             }

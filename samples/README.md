@@ -4,22 +4,24 @@
 
 Expected runtime inputs:
 
-- The bundled workflow now defaults to assets inside `samples/input`.
-- You can keep using the bundled sample files, or switch the controls to entries from your ComfyUI `input` directory.
+- The bundled workflow now opens with blank upload fields instead of hardcoded file paths.
+- You can upload files directly in App mode, or switch the controls to entries from your ComfyUI `input` directory.
 
 Bundled smoke-test assets:
 
-- audio: `samples/input/ltx-demo-tone.wav`
-- image folder: `samples/input/demo_frames`
+- audio: `samples/input/HOWL AT THE HAIRPIN2.wav`
+- image frames: `samples/input/frames_pool/*.png`
 
-Local one-off files can still be dropped into `samples/input` or your ComfyUI `input` directory. The node dropdowns will list both locations.
+Local one-off files can still be dropped into `samples/input` or your ComfyUI `input` directory. The upload nodes list both locations, and blank is allowed until you decide what to use.
 
 The workflow exercises:
 
-- `LTXLoadImages`
 - `LTXLoadAudioUpload`
+- `LTXLoadImageUpload`
+- `LTXBatchUploadedFrames`
 - `LTXLongAudioSegmentInfo`
 - `LTXRandomImageIndex`
+- `LTXAudioSlice`
 - `LTXIntConstant`
 - `LTXSimpleMath`
 - `LTXSimpleCalculator`
@@ -41,9 +43,11 @@ uv run python scripts/check_workflow_layout.py \
 
 The smoke workflow is App mode ready. Its exposed controls are:
 
-- `Frames Folder` -> `directory`
-- `Source Audio` -> `audio`
-- `Segment Audio` -> `audio`
+- `Frame 1 Upload` -> `image`
+- `Frame 2 Upload` -> `image`
+- `Frame 3 Upload` -> `image`
+- `Frame 4 Upload` -> `image`
+- `Source Audio Upload` -> `audio`
 - `Segment Seconds` -> `value`
 - `Random Seed` -> `value`
 - output -> `Video Combine (Smoke Test)`

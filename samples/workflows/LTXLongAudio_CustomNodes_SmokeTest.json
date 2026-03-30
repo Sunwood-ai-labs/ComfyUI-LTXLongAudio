@@ -1,48 +1,27 @@
 {
   "id": "b31f5f4a-cb6f-47cf-b0cf-ltxlongaudio-smoke",
-  "revision": 0,
-  "last_node_id": 17,
-  "last_link_id": 25,
+  "revision": 1,
+  "last_node_id": 21,
+  "last_link_id": 30,
   "nodes": [
     {
       "id": 1,
-      "type": "LTXLoadImages",
+      "type": "LTXLoadImageUpload",
       "pos": [
-        -1440,
-        -60
+        -1680,
+        -340
       ],
       "size": [
         320,
-        220
+        90
       ],
       "flags": {},
       "order": 0,
       "mode": 0,
       "inputs": [
         {
-          "name": "directory",
+          "name": "image",
           "type": "COMBO",
-          "link": null
-        },
-        {
-          "name": "image_load_cap",
-          "type": "INT",
-          "link": null
-        },
-        {
-          "name": "skip_first_images",
-          "type": "INT",
-          "link": null
-        },
-        {
-          "name": "select_every_nth",
-          "type": "INT",
-          "link": null
-        },
-        {
-          "name": "meta_batch",
-          "type": "VHS_BatchManager",
-          "shape": 7,
           "link": null
         }
       ],
@@ -51,49 +30,234 @@
           "name": "IMAGE",
           "type": "IMAGE",
           "links": [
-            7
+            1
           ]
         },
         {
           "name": "MASK",
           "type": "MASK",
           "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXLoadImageUpload",
+        "cnr_id": "comfyui-ltxlongaudio",
+        "ver": "working-tree"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Frame 1 Upload"
+    },
+    {
+      "id": 2,
+      "type": "LTXLoadImageUpload",
+      "pos": [
+        -1680,
+        -160
+      ],
+      "size": [
+        320,
+        90
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "COMBO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXLoadImageUpload",
+        "cnr_id": "comfyui-ltxlongaudio",
+        "ver": "working-tree"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Frame 2 Upload"
+    },
+    {
+      "id": 3,
+      "type": "LTXLoadImageUpload",
+      "pos": [
+        -1680,
+        20
+      ],
+      "size": [
+        320,
+        90
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "COMBO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXLoadImageUpload",
+        "cnr_id": "comfyui-ltxlongaudio",
+        "ver": "working-tree"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Frame 3 Upload"
+    },
+    {
+      "id": 4,
+      "type": "LTXLoadImageUpload",
+      "pos": [
+        -1680,
+        200
+      ],
+      "size": [
+        320,
+        90
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "COMBO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXLoadImageUpload",
+        "cnr_id": "comfyui-ltxlongaudio",
+        "ver": "working-tree"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "title": "Frame 4 Upload"
+    },
+    {
+      "id": 5,
+      "type": "LTXBatchUploadedFrames",
+      "pos": [
+        -1240,
+        -120
+      ],
+      "size": [
+        260,
+        240
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_1",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "name": "image_2",
+          "type": "IMAGE",
+          "link": 2
+        },
+        {
+          "name": "image_3",
+          "type": "IMAGE",
+          "link": 3
+        },
+        {
+          "name": "image_4",
+          "type": "IMAGE",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            11
+          ]
         },
         {
           "name": "frame_count",
           "type": "INT",
           "links": [
-            4,
-            15
+            8,
+            20
           ]
         }
       ],
       "properties": {
-        "Node name for S&R": "LTXLoadImages",
+        "Node name for S&R": "LTXBatchUploadedFrames",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
-      "widgets_values": [
-        "samples/input/demo_frames",
-        0,
-        0,
-        1
-      ],
-      "title": "Frames Folder"
+      "widgets_values": [],
+      "title": "Uploaded Frame Batch"
     },
     {
-      "id": 2,
+      "id": 6,
       "type": "LTXLoadAudioUpload",
       "pos": [
-        -1440,
-        280
+        -1680,
+        460
       ],
       "size": [
         320,
         180
       ],
       "flags": {},
-      "order": 1,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
@@ -116,41 +280,43 @@
         {
           "name": "audio",
           "type": "AUDIO",
-          "links": []
+          "links": [
+            15
+          ]
         },
         {
           "name": "duration",
           "type": "FLOAT",
           "links": [
-            1
+            5
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXLoadAudioUpload",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
-        "samples/input/ltx-demo-tone.wav",
+        "",
         0,
         0
       ],
-      "title": "Source Audio"
+      "title": "Source Audio Upload"
     },
     {
-      "id": 3,
+      "id": 7,
       "type": "LTXIntConstant",
       "pos": [
-        -1050,
-        10
+        -1240,
+        280
       ],
       "size": [
         220,
         86
       ],
       "flags": {},
-      "order": 2,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -167,16 +333,16 @@
           "name": "value",
           "type": "INT",
           "links": [
-            3,
-            5,
-            25
+            7,
+            9,
+            24
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXIntConstant",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         0
@@ -184,61 +350,18 @@
       "title": "Segment Index"
     },
     {
-      "id": 4,
+      "id": 8,
       "type": "LTXIntConstant",
       "pos": [
-        -1050,
-        130
+        -1240,
+        400
       ],
       "size": [
         220,
         86
       ],
       "flags": {},
-      "order": 3,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "value",
-          "type": "INT",
-          "widget": {
-            "name": "value"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "value",
-          "type": "INT",
-          "links": [
-            2
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LTXIntConstant",
-        "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
-      },
-      "widgets_values": [
-        2
-      ],
-      "title": "Segment Seconds"
-    },
-    {
-      "id": 5,
-      "type": "LTXIntConstant",
-      "pos": [
-        -1050,
-        250
-      ],
-      "size": [
-        220,
-        86
-      ],
-      "flags": {},
-      "order": 4,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -262,26 +385,26 @@
       "properties": {
         "Node name for S&R": "LTXIntConstant",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
-        1234
+        20
       ],
-      "title": "Random Seed"
+      "title": "Segment Seconds"
     },
     {
-      "id": 6,
+      "id": 9,
       "type": "LTXIntConstant",
       "pos": [
-        -1050,
-        -240
+        -1240,
+        520
       ],
       "size": [
         220,
         86
       ],
       "flags": {},
-      "order": 5,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -298,14 +421,57 @@
           "name": "value",
           "type": "INT",
           "links": [
-            21
+            10
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXIntConstant",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
+      },
+      "widgets_values": [
+        1234
+      ],
+      "title": "Random Seed"
+    },
+    {
+      "id": 10,
+      "type": "LTXIntConstant",
+      "pos": [
+        -1240,
+        -300
+      ],
+      "size": [
+        220,
+        86
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "value",
+          "type": "INT",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "INT",
+          "links": [
+            27
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXIntConstant",
+        "cnr_id": "comfyui-ltxlongaudio",
+        "ver": "working-tree"
       },
       "widgets_values": [
         8
@@ -313,34 +479,34 @@
       "title": "Fallback FPS"
     },
     {
-      "id": 7,
+      "id": 11,
       "type": "LTXLongAudioSegmentInfo",
       "pos": [
-        -640,
-        220
+        -860,
+        400
       ],
       "size": [
         320,
         230
       ],
       "flags": {},
-      "order": 6,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
           "name": "audio_duration",
           "type": "FLOAT",
-          "link": 1
+          "link": 5
         },
         {
           "name": "segment_seconds",
           "type": "INT",
-          "link": 2
+          "link": 6
         },
         {
           "name": "index",
           "type": "INT",
-          "link": 3
+          "link": 7
         },
         {
           "name": "fps",
@@ -353,28 +519,28 @@
           "name": "start_time",
           "type": "FLOAT",
           "links": [
-            11
+            16
           ]
         },
         {
           "name": "segment_seconds",
           "type": "FLOAT",
           "links": [
-            12
+            17
           ]
         },
         {
           "name": "frames",
           "type": "INT",
           "links": [
-            16
+            21
           ]
         },
         {
           "name": "exact_seconds",
           "type": "FLOAT",
           "links": [
-            17
+            22
           ]
         },
         {
@@ -391,45 +557,45 @@
       "properties": {
         "Node name for S&R": "LTXLongAudioSegmentInfo",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         20.0,
-        2,
+        20,
         0,
         8.0
       ],
       "title": "Current Segment Info"
     },
     {
-      "id": 8,
+      "id": 12,
       "type": "LTXRandomImageIndex",
       "pos": [
-        -640,
-        -20
+        -860,
+        0
       ],
       "size": [
         300,
         150
       ],
       "flags": {},
-      "order": 7,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
           "name": "image_count",
           "type": "INT",
-          "link": 4
+          "link": 8
         },
         {
           "name": "segment_index",
           "type": "INT",
-          "link": 5
+          "link": 9
         },
         {
           "name": "seed",
           "type": "INT",
-          "link": 6
+          "link": 10
         }
       ],
       "outputs": [
@@ -437,14 +603,14 @@
           "name": "image_index",
           "type": "INT",
           "links": [
-            8
+            12
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXRandomImageIndex",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         1,
@@ -454,29 +620,29 @@
       "title": "Random Image Index"
     },
     {
-      "id": 9,
+      "id": 13,
       "type": "LTXIndexAnything",
       "pos": [
-        -260,
-        -20
+        -520,
+        0
       ],
       "size": [
         240,
         86
       ],
       "flags": {},
-      "order": 8,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
           "name": "any",
           "type": "*",
-          "link": 7
+          "link": 11
         },
         {
           "name": "index",
           "type": "INT",
-          "link": 8
+          "link": 12
         }
       ],
       "outputs": [
@@ -484,15 +650,15 @@
           "name": "out",
           "type": "*",
           "links": [
-            9,
-            10
+            13,
+            14
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXIndexAnything",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         0
@@ -500,29 +666,29 @@
       "title": "Selected Frame"
     },
     {
-      "id": 10,
+      "id": 14,
       "type": "LTXBatchAnything",
       "pos": [
-        120,
-        -20
+        -180,
+        0
       ],
       "size": [
         240,
         90
       ],
       "flags": {},
-      "order": 9,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
           "name": "any_1",
           "type": "*",
-          "link": 9
+          "link": 13
         },
         {
           "name": "any_2",
           "type": "*",
-          "link": 10
+          "link": 14
         }
       ],
       "outputs": [
@@ -530,47 +696,47 @@
           "name": "batch",
           "type": "*",
           "links": [
-            22
+            28
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXBatchAnything",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [],
       "title": "Duplicate Frame To Batch"
     },
     {
-      "id": 11,
-      "type": "LTXLoadAudioUpload",
+      "id": 15,
+      "type": "LTXAudioSlice",
       "pos": [
-        -260,
-        280
+        -520,
+        400
       ],
       "size": [
         320,
         180
       ],
       "flags": {},
-      "order": 10,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
           "name": "audio",
-          "type": "COMBO",
-          "link": null
+          "type": "AUDIO",
+          "link": 15
         },
         {
           "name": "start_time",
           "type": "FLOAT",
-          "link": 11
+          "link": 16
         },
         {
           "name": "duration",
           "type": "FLOAT",
-          "link": 12
+          "link": 17
         }
       ],
       "outputs": [
@@ -578,8 +744,8 @@
           "name": "audio",
           "type": "AUDIO",
           "links": [
-            13,
-            14
+            18,
+            19
           ]
         },
         {
@@ -589,41 +755,40 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "LTXLoadAudioUpload",
+        "Node name for S&R": "LTXAudioSlice",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
-        "samples/input/ltx-demo-tone.wav",
         0,
-        2
+        0
       ],
-      "title": "Segment Audio"
+      "title": "Segment Audio Slice"
     },
     {
-      "id": 12,
+      "id": 16,
       "type": "LTXAudioConcatenate",
       "pos": [
-        120,
-        280
+        -180,
+        400
       ],
       "size": [
         240,
         130
       ],
       "flags": {},
-      "order": 11,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
           "name": "audio1",
           "type": "AUDIO",
-          "link": 13
+          "link": 18
         },
         {
           "name": "audio2",
           "type": "AUDIO",
-          "link": 14
+          "link": 19
         },
         {
           "name": "direction",
@@ -636,14 +801,14 @@
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            23
+            29
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXAudioConcatenate",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         "right"
@@ -651,18 +816,18 @@
       "title": "Double Audio For Mux Test"
     },
     {
-      "id": 13,
+      "id": 17,
       "type": "LTXSimpleMath",
       "pos": [
-        -640,
-        -240
+        -860,
+        -300
       ],
       "size": [
         250,
         122
       ],
       "flags": {},
-      "order": 12,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -673,7 +838,7 @@
         {
           "name": "a",
           "type": "*",
-          "link": 15
+          "link": 20
         },
         {
           "name": "b",
@@ -691,7 +856,7 @@
           "name": "int",
           "type": "INT",
           "links": [
-            18
+            23
           ]
         },
         {
@@ -708,29 +873,26 @@
       "properties": {
         "Node name for S&R": "LTXSimpleMath",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
-        "a - b",
-        0,
-        1,
-        0
+        "a - b"
       ],
       "title": "Max Frame Index"
     },
     {
-      "id": 14,
+      "id": 18,
       "type": "LTXSimpleCalculator",
       "pos": [
-        -260,
-        -240
+        -520,
+        -300
       ],
       "size": [
         280,
         146
       ],
       "flags": {},
-      "order": 13,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
@@ -755,12 +917,12 @@
         {
           "name": "a",
           "type": "*",
-          "link": 16
+          "link": 21
         },
         {
           "name": "b",
           "type": "*",
-          "link": 17
+          "link": 22
         }
       ],
       "outputs": [
@@ -768,7 +930,7 @@
           "name": "FLOAT",
           "type": "FLOAT",
           "links": [
-            20
+            26
           ]
         },
         {
@@ -785,7 +947,7 @@
       "properties": {
         "Node name for S&R": "LTXSimpleCalculator",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         "(a - 1) / b"
@@ -793,29 +955,29 @@
       "title": "Derived Frame Rate"
     },
     {
-      "id": 15,
+      "id": 19,
       "type": "LTXCompare",
       "pos": [
-        120,
-        -240
+        -180,
+        -300
       ],
       "size": [
         230,
         100
       ],
       "flags": {},
-      "order": 14,
+      "order": 18,
       "mode": 0,
       "inputs": [
         {
           "name": "a",
           "type": "*",
-          "link": 18
+          "link": 23
         },
         {
           "name": "b",
           "type": "*",
-          "link": 25
+          "link": 24
         },
         {
           "name": "comparison",
@@ -828,14 +990,14 @@
           "name": "boolean",
           "type": "BOOLEAN",
           "links": [
-            19
+            25
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXCompare",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         "a > b"
@@ -843,34 +1005,34 @@
       "title": "Has Multiple Images?"
     },
     {
-      "id": 16,
+      "id": 20,
       "type": "LTXIfElse",
       "pos": [
-        440,
-        -240
+        140,
+        -300
       ],
       "size": [
         230,
         84
       ],
       "flags": {},
-      "order": 15,
+      "order": 19,
       "mode": 0,
       "inputs": [
         {
           "name": "boolean",
           "type": "BOOLEAN",
-          "link": 19
+          "link": 25
         },
         {
           "name": "on_true",
           "type": "*",
-          "link": 20
+          "link": 26
         },
         {
           "name": "on_false",
           "type": "*",
-          "link": 21
+          "link": 27
         }
       ],
       "outputs": [
@@ -878,43 +1040,43 @@
           "name": "*",
           "type": "*",
           "links": [
-            24
+            30
           ]
         }
       ],
       "properties": {
         "Node name for S&R": "LTXIfElse",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [],
       "title": "Frame Rate Fallback"
     },
     {
-      "id": 17,
+      "id": 21,
       "type": "LTXVideoCombine",
       "pos": [
-        820,
-        -20
+        520,
+        0
       ],
       "size": [
         440,
         420
       ],
       "flags": {},
-      "order": 16,
+      "order": 20,
       "mode": 0,
       "inputs": [
         {
           "name": "images",
           "type": "IMAGE",
-          "link": 22
+          "link": 28
         },
         {
           "name": "audio",
           "shape": 7,
           "type": "AUDIO",
-          "link": 23
+          "link": 29
         },
         {
           "name": "meta_batch",
@@ -934,7 +1096,7 @@
           "widget": {
             "name": "frame_rate"
           },
-          "link": 24
+          "link": 30
         }
       ],
       "outputs": [
@@ -947,7 +1109,7 @@
       "properties": {
         "Node name for S&R": "LTXVideoCombine",
         "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
+        "ver": "working-tree"
       },
       "widgets_values": [
         8,
@@ -967,214 +1129,254 @@
   "links": [
     [
       1,
-      2,
       1,
-      7,
       0,
-      "FLOAT"
+      5,
+      0,
+      "IMAGE"
     ],
     [
       2,
-      4,
+      2,
       0,
-      7,
+      5,
       1,
-      "INT"
+      "IMAGE"
     ],
     [
       3,
       3,
       0,
-      7,
+      5,
       2,
-      "INT"
+      "IMAGE"
     ],
     [
       4,
-      1,
-      2,
-      8,
+      4,
       0,
-      "INT"
+      5,
+      3,
+      "IMAGE"
     ],
     [
       5,
-      3,
-      0,
-      8,
+      6,
       1,
-      "INT"
+      11,
+      0,
+      "FLOAT"
     ],
     [
       6,
-      5,
-      0,
       8,
+      0,
+      11,
+      1,
+      "INT"
+    ],
+    [
+      7,
+      7,
+      0,
+      11,
       2,
       "INT"
     ],
     [
-      7,
-      1,
-      0,
-      9,
-      0,
-      "IMAGE"
-    ],
-    [
       8,
-      8,
-      0,
-      9,
+      5,
       1,
+      12,
+      0,
       "INT"
     ],
     [
       9,
-      9,
-      0,
-      10,
-      0,
-      "IMAGE"
-    ],
-    [
-      10,
-      9,
-      0,
-      10,
-      1,
-      "IMAGE"
-    ],
-    [
-      11,
       7,
       0,
-      11,
+      12,
       1,
-      "FLOAT"
+      "INT"
+    ],
+    [
+      10,
+      9,
+      0,
+      12,
+      2,
+      "INT"
+    ],
+    [
+      11,
+      5,
+      0,
+      13,
+      0,
+      "IMAGE"
     ],
     [
       12,
-      7,
+      12,
+      0,
+      13,
       1,
-      11,
-      2,
-      "FLOAT"
+      "INT"
     ],
     [
       13,
-      11,
+      13,
       0,
-      12,
+      14,
       0,
-      "AUDIO"
+      "IMAGE"
     ],
     [
       14,
-      11,
+      13,
       0,
-      12,
+      14,
       1,
-      "AUDIO"
+      "IMAGE"
     ],
     [
       15,
-      1,
-      2,
-      13,
-      1,
-      "INT"
+      6,
+      0,
+      15,
+      0,
+      "AUDIO"
     ],
     [
       16,
-      7,
-      2,
-      14,
-      3,
-      "INT"
+      11,
+      0,
+      15,
+      1,
+      "FLOAT"
     ],
     [
       17,
-      7,
-      3,
-      14,
-      4,
+      11,
+      1,
+      15,
+      2,
       "FLOAT"
     ],
     [
       18,
-      13,
-      0,
       15,
       0,
-      "INT"
+      16,
+      0,
+      "AUDIO"
     ],
     [
       19,
       15,
       0,
       16,
-      0,
-      "BOOLEAN"
-    ],
-    [
-      20,
-      14,
-      0,
-      16,
-      1,
-      "FLOAT"
-    ],
-    [
-      21,
-      6,
-      0,
-      16,
-      2,
-      "INT"
-    ],
-    [
-      22,
-      10,
-      0,
-      17,
-      0,
-      "IMAGE"
-    ],
-    [
-      23,
-      12,
-      0,
-      17,
       1,
       "AUDIO"
     ],
     [
-      24,
-      16,
-      0,
+      20,
+      5,
+      1,
       17,
+      1,
+      "INT"
+    ],
+    [
+      21,
+      11,
+      2,
+      18,
+      3,
+      "INT"
+    ],
+    [
+      22,
+      11,
+      3,
+      18,
       4,
       "FLOAT"
     ],
     [
-      25,
-      3,
+      23,
+      17,
       0,
-      15,
+      19,
+      0,
+      "INT"
+    ],
+    [
+      24,
+      7,
+      0,
+      19,
       1,
       "INT"
+    ],
+    [
+      25,
+      19,
+      0,
+      20,
+      0,
+      "BOOLEAN"
+    ],
+    [
+      26,
+      18,
+      0,
+      20,
+      1,
+      "FLOAT"
+    ],
+    [
+      27,
+      10,
+      0,
+      20,
+      2,
+      "INT"
+    ],
+    [
+      28,
+      14,
+      0,
+      21,
+      0,
+      "IMAGE"
+    ],
+    [
+      29,
+      16,
+      0,
+      21,
+      1,
+      "AUDIO"
+    ],
+    [
+      30,
+      20,
+      0,
+      21,
+      4,
+      "FLOAT"
     ]
   ],
   "groups": [
     {
       "id": 1,
-      "title": "Inputs",
+      "title": "Uploads",
       "bounding": [
-        -1490,
-        -360,
-        710,
-        880
+        -1730,
+        -420,
+        430,
+        1120
       ],
       "color": "#3f789e",
       "font_size": 20,
@@ -1182,12 +1384,12 @@
     },
     {
       "id": 2,
-      "title": "Validation Logic",
+      "title": "Batch And Timing",
       "bounding": [
-        -690,
-        -360,
-        1410,
-        880
+        -1290,
+        -380,
+        1710,
+        1080
       ],
       "color": "#8AA",
       "font_size": 20,
@@ -1197,8 +1399,8 @@
       "id": 3,
       "title": "Output",
       "bounding": [
-        770,
-        -140,
+        470,
+        -120,
         540,
         600
       ],
@@ -1210,10 +1412,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.78,
+      "scale": 0.74,
       "offset": [
-        1120,
-        210
+        1410,
+        300
       ]
     },
     "frontendVersion": "1.42.8",
@@ -1223,27 +1425,35 @@
       "inputs": [
         [
           1,
-          "directory"
+          "image"
         ],
         [
           2,
-          "audio"
+          "image"
         ],
         [
-          11,
-          "audio"
+          3,
+          "image"
         ],
         [
           4,
+          "image"
+        ],
+        [
+          6,
+          "audio"
+        ],
+        [
+          8,
           "value"
         ],
         [
-          5,
+          9,
           "value"
         ]
       ],
       "outputs": [
-        17
+        21
       ]
     }
   },

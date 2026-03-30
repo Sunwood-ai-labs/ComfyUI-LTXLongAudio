@@ -25,17 +25,20 @@ def test_sample_workflow_layout_passes():
 
     assert report["issues"] == []
     assert report["group_count"] == 3
-    assert report["node_count"] == 17
+    assert report["node_count"] == 21
+    assert report["node_group_matches"]["Frame 1 Upload"] == ["Uploads"]
     assert report["node_group_matches"]["Video Combine (Smoke Test)"] == ["Output"]
     assert report["app_mode"]["enabled"] is True
     assert report["app_mode"]["selected_inputs"] == [
-        [1, "directory"],
-        [2, "audio"],
-        [11, "audio"],
-        [4, "value"],
-        [5, "value"],
+        [1, "image"],
+        [2, "image"],
+        [3, "image"],
+        [4, "image"],
+        [6, "audio"],
+        [8, "value"],
+        [9, "value"],
     ]
-    assert report["app_mode"]["selected_outputs"] == [17]
+    assert report["app_mode"]["selected_outputs"] == [21]
 
 
 def test_layout_checker_reports_overlaps(tmp_path):

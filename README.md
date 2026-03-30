@@ -10,8 +10,10 @@ This repository is intended for setups where custom nodes are published on GitHu
   Computes per-segment timing and frame information for loop-based long-audio workflows.
 - `LTXRandomImageIndex`
   Returns a deterministic random image index for a segment index and seed.
-- `LTXLoadAudioUpload` and `LTXLoadImages`
-  Load the source song and a reference-frame directory directly from the ComfyUI input folder.
+- `LTXLoadAudioUpload`, `LTXLoadImageUpload`, `LTXBatchUploadedFrames`, and `LTXLoadImages`
+  Load an uploaded song, upload individual reference frames, batch uploaded frames, or load a reference-frame directory directly from the ComfyUI input folder.
+- `LTXAudioSlice`
+  Cuts a segment from an already loaded audio clip, so workflows only need one audio upload control.
 - `LTXSimpleMath`, `LTXCompare`, `LTXIfElse`, `LTXIndexAnything`, `LTXBatchAnything`
   Workflow helpers used to drive segment loops and image selection.
 - `LTXWhileLoopStart`, `LTXWhileLoopEnd`, `LTXForLoopStart`, `LTXForLoopEnd`
@@ -35,11 +37,11 @@ Then restart ComfyUI.
 
 This repository is designed for the common Colab flow where custom nodes are installed with `git clone` into `ComfyUI/custom_nodes`.
 
-The current workflow expects:
+The bundled smoke workflow is upload-first:
 
-- one song file in the ComfyUI input root
-- one frame-image folder under the ComfyUI input root
-- `ffmpeg` available in the runtime
+- upload one song from App mode or the node graph
+- upload four same-size reference frames
+- keep `ffmpeg` available in the runtime
 
 ## Samples
 
@@ -47,7 +49,7 @@ The current workflow expects:
 - Sample input placeholders: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 
-The bundled smoke workflow opens against lightweight repo-owned assets in `samples/input` by default, so you can validate node wiring even when your ComfyUI `input` directory contains unrelated files.
+The bundled smoke workflow no longer hardcodes file paths. It opens with blank upload fields and the API smoke script injects demo assets at runtime.
 
 Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues are checked:
 
