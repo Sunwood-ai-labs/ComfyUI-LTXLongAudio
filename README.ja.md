@@ -2,6 +2,8 @@
   <img src="docs/public/comfyui-ltxlongaudio-header.png" alt="ComfyUI-LTXLongAudio のワークフロー概要スクリーンショット" width="900">
 </p>
 
+<h1 align="center">ComfyUI-LTXLongAudio</h1>
+
 <p align="center">
   <strong>長尺音声向け ComfyUI ワークフローのためのネイティブ <code>LTX*</code> カスタムノード集。</strong><br>
   チャンク計画、フレームフォルダ選択、ループ制御、静止画動画化、最終 MP4 プレビューまでを 1 つのリポジトリにまとめています。

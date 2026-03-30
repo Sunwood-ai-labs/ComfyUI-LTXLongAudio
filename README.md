@@ -2,6 +2,8 @@
   <img src="docs/public/comfyui-ltxlongaudio-header.png" alt="ComfyUI-LTXLongAudio workflow overview screenshot" width="900">
 </p>
 
+<h1 align="center">ComfyUI-LTXLongAudio</h1>
+
 <p align="center">
   <strong>Native <code>LTX*</code> custom nodes for long-audio ComfyUI workflows.</strong><br>
   Chunk planning, frame-folder selection, loop control, still-video assembly, and final MP4 preview in one repository.

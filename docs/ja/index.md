@@ -34,6 +34,8 @@ features:
 
 ![ComfyUI-LTXLongAudio のワークフロー概要スクリーンショット](/comfyui-ltxlongaudio-header.png)
 
+<p align="center"><strong>ComfyUI-LTXLongAudio</strong></p>
+
 README の先頭では、この概要スクリーンショットをヘッダー画像として使っています。
 
 ### アプリ画面

@@ -34,6 +34,8 @@ features:
 
 ![ComfyUI-LTXLongAudio workflow overview screenshot](/comfyui-ltxlongaudio-header.png)
 
+<p align="center"><strong>ComfyUI-LTXLongAudio</strong></p>
+
 The repository header uses this workflow overview screenshot so the bundled long-audio graph is visible at a glance.
 
 ### App Screen
