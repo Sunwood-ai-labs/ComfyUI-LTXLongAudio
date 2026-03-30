@@ -49,7 +49,7 @@ The current workflow expects:
 
 The bundled smoke workflow opens against lightweight repo-owned assets in `samples/input` by default, so you can validate node wiring even when your ComfyUI `input` directory contains unrelated files.
 
-Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, and App mode metadata are checked:
+Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues are checked:
 
 ```bash
 uv run python scripts/check_workflow_layout.py \

@@ -145,3 +145,109 @@ def test_layout_checker_reports_invalid_app_mode(tmp_path):
     assert any("app mode missing input node" in issue for issue in report["issues"])
     assert any("app mode missing widget" in issue for issue in report["issues"])
     assert any("app mode invalid output node" in issue for issue in report["issues"])
+
+
+def test_layout_checker_reports_runtime_contract_errors(tmp_path):
+    module = _load_layout_module()
+    workflow_path = tmp_path / "broken_runtime_workflow.json"
+    workflow_path.write_text(
+        """
+{
+  "last_link_id": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LTXIntConstant",
+      "title": "Segment Index",
+      "pos": [0, 0],
+      "size": [220, 86],
+      "inputs": [
+        {
+          "name": "value",
+          "type": "INT",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "INT",
+          "links": [1]
+        }
+      ],
+      "widgets_values": [0]
+    },
+    {
+      "id": 2,
+      "type": "LTXAudioConcatenate",
+      "title": "Audio Concatenate",
+      "pos": [320, 0],
+      "size": [220, 86],
+      "inputs": [
+        {
+          "name": "audio1",
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "audio2",
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "direction",
+          "type": "COMBO",
+          "link": 1
+        }
+      ],
+      "widgets_values": ["sideways"]
+    },
+    {
+      "id": 3,
+      "type": "LTXCompare",
+      "title": "Compare",
+      "pos": [640, 0],
+      "size": [220, 86],
+      "inputs": [
+        {
+          "name": "a",
+          "type": "*",
+          "link": 1
+        },
+        {
+          "name": "b",
+          "type": "*",
+          "link": null
+        },
+        {
+          "name": "comparison",
+          "type": "COMBO",
+          "link": null
+        }
+      ],
+      "widgets_values": ["a > b"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 2, "INT"]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Group A",
+      "bounding": [-20, -20, 980, 220]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = module.analyze_workflow(workflow_path, require_all_nodes_in_groups=True)
+
+    assert any("invalid combo value" in issue for issue in report["issues"])
+    assert any("linked combo input" in issue for issue in report["issues"])
+    assert any("missing required input" in issue for issue in report["issues"])

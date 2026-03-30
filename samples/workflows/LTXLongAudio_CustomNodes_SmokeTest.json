@@ -628,7 +628,7 @@
         {
           "name": "direction",
           "type": "COMBO",
-          "link": 25
+          "link": null
         }
       ],
       "outputs": [
@@ -815,7 +815,7 @@
         {
           "name": "b",
           "type": "*",
-          "link": null
+          "link": 25
         },
         {
           "name": "comparison",

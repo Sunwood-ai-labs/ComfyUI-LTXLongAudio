@@ -30,7 +30,7 @@ The workflow exercises:
 - `LTXAudioConcatenate`
 - `LTXVideoCombine`
 
-Before publishing a workflow update, you can also lint the layout. The checker verifies group bounds, title-band collisions, node-node overlaps, and App mode metadata:
+Before publishing a workflow update, you can also lint the layout. The checker verifies group bounds, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues such as missing required links or linked combo widgets:
 
 ```bash
 uv run python scripts/check_workflow_layout.py \

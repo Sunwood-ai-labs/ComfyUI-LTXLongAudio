@@ -33,6 +33,112 @@ def describe_titles(items):
     return ", ".join(f"'{item}'" for item in items)
 
 
+def input_schema_map(node_class):
+    try:
+        input_types = node_class.INPUT_TYPES()
+    except Exception:
+        return {}, []
+
+    schema_map = {}
+    widget_order = []
+    for section_name in ("required", "optional"):
+        section = input_types.get(section_name, {})
+        if not isinstance(section, dict):
+            continue
+        for name, spec in section.items():
+            schema_map[name] = {"required": section_name == "required", "spec": spec}
+            if spec_uses_widget(spec):
+                widget_order.append(name)
+    return schema_map, widget_order
+
+
+def spec_primary_value(spec):
+    if isinstance(spec, tuple) and spec:
+        return spec[0]
+    return spec
+
+
+def spec_uses_widget(spec):
+    primary = spec_primary_value(spec)
+    return isinstance(primary, list) or (isinstance(spec, tuple) and len(spec) > 1 and isinstance(spec[1], dict))
+
+
+def normalize_type_names(type_name):
+    if not type_name:
+        return set()
+    if isinstance(type_name, str):
+        return {part.strip() for part in type_name.split(",") if part.strip()}
+    return set()
+
+
+def analyze_node_contracts(data, raw_nodes, *, node_registry):
+    issues = []
+    links = {}
+    for link in data.get("links", []):
+        if isinstance(link, list) and len(link) >= 6:
+            links[link[0]] = link
+
+    for raw_node in raw_nodes:
+        node_title = raw_node.get("title") or raw_node.get("type") or f"node-{raw_node.get('id', '?')}"
+        node_type = raw_node.get("type")
+        node_class = node_registry.get(node_type)
+        schema_map, widget_order = input_schema_map(node_class) if node_class is not None else ({}, [])
+
+        widget_values = raw_node.get("widgets_values", [])
+        if not isinstance(widget_values, list):
+            widget_values = []
+
+        for widget_index, widget_name in enumerate(widget_order):
+            if widget_index >= len(widget_values):
+                break
+            widget_value = widget_values[widget_index]
+            schema = schema_map[widget_name]["spec"]
+            primary = spec_primary_value(schema)
+            if isinstance(primary, list) and widget_value not in primary:
+                issues.append(
+                    f"invalid combo value: '{node_title}' widget '{widget_name}' has {widget_value!r}, expected one of {primary!r}"
+                )
+
+        for input_def in raw_node.get("inputs", []):
+            if not isinstance(input_def, dict):
+                continue
+            input_name = input_def.get("name")
+            input_link = input_def.get("link")
+            input_type = input_def.get("type")
+            schema_info = schema_map.get(input_name)
+            schema = schema_info["spec"] if schema_info else None
+            required = bool(schema_info and schema_info["required"])
+            primary = spec_primary_value(schema) if schema is not None else None
+            widget_backed = spec_uses_widget(schema) if schema is not None else (input_type == "COMBO")
+
+            if input_link is None:
+                if required and not widget_backed:
+                    issues.append(f"missing required input: '{node_title}' input '{input_name}' has no link")
+                continue
+
+            link = links.get(input_link)
+            if link is None:
+                issues.append(f"missing link: '{node_title}' input '{input_name}' references link {input_link!r} that does not exist")
+                continue
+
+            linked_type = str(link[5])
+            if input_type == "COMBO" or isinstance(primary, list):
+                issues.append(
+                    f"linked combo input: '{node_title}' input '{input_name}' should use a widget value, not link type {linked_type}"
+                )
+                continue
+
+            expected_types = normalize_type_names(primary if isinstance(primary, str) else input_type)
+            if "*" in expected_types or not expected_types:
+                continue
+            if linked_type not in expected_types:
+                issues.append(
+                    f"type mismatch: '{node_title}' input '{input_name}' expected {sorted(expected_types)!r} but received {linked_type!r}"
+                )
+
+    return issues
+
+
 def load_local_node_registry():
     module_path = Path(__file__).resolve().parents[1] / "nodes.py"
     if not module_path.exists():
@@ -226,6 +332,7 @@ def analyze_workflow(
         require_app_mode=require_app_mode,
     )
     issues.extend(app_mode_report["issues"])
+    issues.extend(analyze_node_contracts(data, data.get("nodes", []), node_registry=node_registry))
 
     return {
         "path": str(Path(path).resolve()),
