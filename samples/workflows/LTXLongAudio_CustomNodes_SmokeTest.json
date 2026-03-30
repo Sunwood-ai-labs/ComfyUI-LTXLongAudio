@@ -391,7 +391,8 @@
           "name": "frames",
           "type": "INT",
           "links": [
-            16
+            16,
+            10
           ]
         },
         {
@@ -508,8 +509,7 @@
           "name": "out",
           "type": "*",
           "links": [
-            9,
-            10
+            9
           ]
         }
       ],
@@ -525,46 +525,51 @@
     },
     {
       "id": 11,
-      "type": "LTXBatchAnything",
+      "type": "LTXRepeatImageBatch",
       "pos": [
         120,
         0
       ],
       "size": [
-        240,
-        90
+        260,
+        110
       ],
       "flags": {},
       "order": 10,
       "mode": 0,
       "inputs": [
         {
-          "name": "any_1",
-          "type": "*",
+          "name": "image",
+          "type": "IMAGE",
           "link": 9
         },
         {
-          "name": "any_2",
-          "type": "*",
+          "name": "count",
+          "type": "INT",
           "link": 10
         }
       ],
       "outputs": [
         {
-          "name": "batch",
-          "type": "*",
+          "name": "IMAGE",
+          "type": "IMAGE",
           "links": [
             23
           ]
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": []
         }
       ],
       "properties": {
-        "Node name for S&R": "LTXBatchAnything",
+        "Node name for S&R": "LTXRepeatImageBatch",
         "cnr_id": "comfyui-ltxlongaudio",
         "ver": "working-tree"
       },
       "widgets_values": [],
-      "title": "Duplicate Frame To Batch"
+      "title": "Still Frame To Video Batch"
     },
     {
       "id": 12,
@@ -602,8 +607,7 @@
           "name": "audio",
           "type": "AUDIO",
           "links": [
-            14,
-            15
+            24
           ]
         },
         {
@@ -622,56 +626,6 @@
         0
       ],
       "title": "Segment Audio Slice"
-    },
-    {
-      "id": 13,
-      "type": "LTXAudioConcatenate",
-      "pos": [
-        120,
-        300
-      ],
-      "size": [
-        240,
-        130
-      ],
-      "flags": {},
-      "order": 12,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "audio1",
-          "type": "AUDIO",
-          "link": 14
-        },
-        {
-          "name": "audio2",
-          "type": "AUDIO",
-          "link": 15
-        },
-        {
-          "name": "direction",
-          "type": "COMBO",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "AUDIO",
-          "type": "AUDIO",
-          "links": [
-            24
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LTXAudioConcatenate",
-        "cnr_id": "comfyui-ltxlongaudio",
-        "ver": "working-tree"
-      },
-      "widgets_values": [
-        "right"
-      ],
-      "title": "Double Audio For Mux Test"
     },
     {
       "id": 14,
@@ -1032,11 +986,11 @@
     ],
     [
       10,
-      10,
-      0,
+      8,
+      2,
       11,
       1,
-      "IMAGE"
+      "INT"
     ],
     [
       11,
@@ -1060,22 +1014,6 @@
       0,
       12,
       0,
-      "AUDIO"
-    ],
-    [
-      14,
-      12,
-      0,
-      13,
-      0,
-      "AUDIO"
-    ],
-    [
-      15,
-      12,
-      0,
-      13,
-      1,
       "AUDIO"
     ],
     [
@@ -1144,7 +1082,7 @@
     ],
     [
       24,
-      13,
+      12,
       0,
       17,
       1,

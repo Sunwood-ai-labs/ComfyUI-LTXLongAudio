@@ -817,6 +817,37 @@ class LTXBatchUploadedFrames:
         return torch.cat(images, dim=0), len(images)
 
 
+class LTXRepeatImageBatch:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "count": ("INT", {"default": 2, "min": 1, "max": 100_000, "step": 1}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT")
+    RETURN_NAMES = ("IMAGE", "frame_count")
+    FUNCTION = "repeat_image"
+    CATEGORY = "LTX/Workflow"
+
+    def repeat_image(self, image, count):
+        _require("torch", torch)
+        count = max(int(count), 1)
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
+        batch = image.shape[0]
+        if batch == count:
+            repeated = image
+        elif batch == 1:
+            repeated = image.repeat(count, 1, 1, 1)
+        else:
+            cycles = math.ceil(count / batch)
+            repeated = image.repeat(cycles, 1, 1, 1)[:count]
+        return repeated.contiguous(), int(repeated.shape[0])
+
+
 class CompatLoadAudioUpload:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1486,7 +1517,7 @@ class CompatVideoCombine:
             subprocess.run(command, check=True, capture_output=True)
 
         payload = {"filename": file_name, "subfolder": "", "type": media_type, "format": format}
-        return {"ui": {"text": [output_path]}, "result": ((save_output, [payload]),)}
+        return {"ui": {"images": [payload], "animated": (True,), "text": [output_path]}, "result": ((save_output, [payload]),)}
 
 
 NODE_CLASS_MAPPINGS = {
@@ -1494,6 +1525,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXRandomImageIndex": LTXRandomImageIndex,
     "LTXLoadImageUpload": CompatLoadImageUpload,
     "LTXBatchUploadedFrames": LTXBatchUploadedFrames,
+    "LTXRepeatImageBatch": LTXRepeatImageBatch,
     "LTXShowAnything": CompatShowAnything,
     "LTXSimpleMath": CompatSimpleMath,
     "LTXSeedList": CompatSeedList,

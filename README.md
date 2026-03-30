@@ -41,6 +41,8 @@ The bundled smoke workflow is folder-plus-audio:
 
 - upload one song with the built-in `LoadAudio` control
 - choose one frame folder from the ComfyUI input list
+- turn the selected still image into a dummy still-video batch
+- preview the generated mp4 directly in ComfyUI
 - keep `ffmpeg` available in the runtime
 
 ## Samples

@@ -20,6 +20,7 @@ def test_node_module_exports():
     assert "LTXRandomImageIndex" in module.NODE_CLASS_MAPPINGS
     assert "LTXLoadImageUpload" in module.NODE_CLASS_MAPPINGS
     assert "LTXBatchUploadedFrames" in module.NODE_CLASS_MAPPINGS
+    assert "LTXRepeatImageBatch" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopStart" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopEnd" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioSlice" in module.NODE_CLASS_MAPPINGS
@@ -30,7 +31,7 @@ def test_node_module_exports():
         assert legacy not in module.NODE_CLASS_MAPPINGS
 
 
-def test_pure_node_behaviors():
+def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     module = _load_nodes_module()
 
     segment = module.LTXLongAudioSegmentInfo()
@@ -59,6 +60,11 @@ def test_pure_node_behaviors():
         assert batched_images.shape == (2, 4, 4, 3)
         assert frame_count == 2
 
+        repeat_batch = module.NODE_CLASS_MAPPINGS["LTXRepeatImageBatch"]()
+        repeated_images, repeated_count = repeat_batch.repeat_image(image_a, 3)
+        assert repeated_images.shape == (3, 4, 4, 3)
+        assert repeated_count == 3
+
         audio_slice = module.NODE_CLASS_MAPPINGS["LTXAudioSlice"]()
         sample_rate = 8
         waveform = module.torch.arange(0, 32, dtype=module.torch.float32).reshape(1, 1, 32)
@@ -72,6 +78,24 @@ def test_pure_node_behaviors():
 
         audio_duration = module.NODE_CLASS_MAPPINGS["LTXAudioDuration"]()
         assert audio_duration.get_duration({"waveform": waveform, "sample_rate": sample_rate}) == (4.0,)
+
+        try:
+            module._ffmpeg_executable()
+        except Exception as exc:  # noqa: BLE001
+            pytest.skip(f"ffmpeg not available for video preview test: {exc}")
+
+        monkeypatch.setattr(module, "_output_directory", lambda save_output: str(tmp_path))
+        video_combine = module.NODE_CLASS_MAPPINGS["LTXVideoCombine"]()
+        preview_result = video_combine.combine_video(
+            repeated_images,
+            frame_rate=2.0,
+            filename_prefix="ltx-preview-test",
+            save_output=False,
+            trim_to_audio=False,
+        )
+        assert "ui" in preview_result
+        assert "images" in preview_result["ui"]
+        assert preview_result["ui"]["animated"][0] is True
 
 
 def test_sample_inputs_are_listed_and_resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
