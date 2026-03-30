@@ -28,6 +28,20 @@ features:
     details: レイアウト契約、App mode メタデータ、Prompt API 実行をリポジトリ内スクリプトで確認できます。
 ---
 
+## ビジュアルプレビュー
+
+### リポジトリヘッダー
+
+![ComfyUI-LTXLongAudio のワークフロー概要スクリーンショット](/comfyui-ltxlongaudio-header.png)
+
+README の先頭では、この概要スクリーンショットをヘッダー画像として使っています。
+
+### アプリ画面
+
+![Frames Folder、Source Audio Upload、Segment Seconds、Random Seed を表示した ComfyUI-LTXLongAudio のアプリ画面](/comfyui-ltxlongaudio-app-screenshot.png)
+
+App mode 画面は、フレームフォルダ、音声アップロード、チャンク秒数、シードの 4 つに要点を絞っています。
+
 ## 同梱内容
 
 - 音声アップロード、画像アップロード、バッチフレーム、フォルダ選択のためのネイティブ入力ノード

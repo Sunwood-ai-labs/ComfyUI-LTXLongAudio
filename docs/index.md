@@ -28,6 +28,20 @@ features:
     details: Validate layout contracts, App mode metadata, and prompt API execution with repository-native scripts before you share a graph.
 ---
 
+## Workflow Preview
+
+### Repository Header
+
+![ComfyUI-LTXLongAudio workflow overview screenshot](/comfyui-ltxlongaudio-header.png)
+
+The repository header uses this workflow overview screenshot so the bundled long-audio graph is visible at a glance.
+
+### App Screen
+
+![ComfyUI-LTXLongAudio app screen showing Frames Folder, Source Audio Upload, Segment Seconds, and Random Seed](/comfyui-ltxlongaudio-app-screenshot.png)
+
+The App mode surface stays intentionally small: choose a frame folder, upload source audio, set chunk length, and keep deterministic seed control.
+
 ## What ships
 
 - Native input nodes for audio upload, image upload, batched frames, and folder selection.

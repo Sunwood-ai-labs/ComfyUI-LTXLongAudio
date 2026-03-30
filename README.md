@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/public/ogp.svg" alt="ComfyUI-LTXLongAudio hero card" width="900">
+  <img src="docs/public/comfyui-ltxlongaudio-header.png" alt="ComfyUI-LTXLongAudio workflow overview screenshot" width="900">
 </p>
 
 <p align="center">
@@ -33,6 +33,12 @@ It is designed for the common Colab and desktop flow where custom nodes are clon
 - `Source Audio Upload`
 - `Segment Seconds`
 - `Random Seed`
+
+## Visual Preview
+
+![ComfyUI-LTXLongAudio app screen showing Frames Folder, Source Audio Upload, Segment Seconds, and Random Seed](docs/public/comfyui-ltxlongaudio-app-screenshot.png)
+
+The current App mode surface stays focused on folder selection, source-audio upload, chunk length, and deterministic seed control.
 
 ## Signal Highlights
 

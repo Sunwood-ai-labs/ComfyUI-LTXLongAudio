@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/public/ogp.svg" alt="ComfyUI-LTXLongAudio ヒーローカード" width="900">
+  <img src="docs/public/comfyui-ltxlongaudio-header.png" alt="ComfyUI-LTXLongAudio のワークフロー概要スクリーンショット" width="900">
 </p>
 
 <p align="center">
@@ -33,6 +33,12 @@
 - `Source Audio Upload`
 - `Segment Seconds`
 - `Random Seed`
+
+## ビジュアルプレビュー
+
+![Frames Folder、Source Audio Upload、Segment Seconds、Random Seed を表示した ComfyUI-LTXLongAudio のアプリ画面](docs/public/comfyui-ltxlongaudio-app-screenshot.png)
+
+現在の App mode 画面では、フレームフォルダ選択、音声アップロード、チャンク秒数、シード制御に要点を絞って操作できます。
 
 ## 主な特徴
 
