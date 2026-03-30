@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-ltxlongaudio"
-version = "0.2.0"
-description = "Custom nodes and compatibility shims for long-audio LTX workflows in ComfyUI"
+version = "0.3.0"
+description = "Native LTX custom nodes for long-audio workflows in ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }

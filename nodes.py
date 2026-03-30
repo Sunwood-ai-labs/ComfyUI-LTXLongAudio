@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import types
+import wave
 from typing import Any
 
 try:
@@ -229,6 +230,45 @@ def _hash_path(path: str) -> str:
     return digest.hexdigest()
 
 
+def _load_wav_fallback(path: str, frame_offset: int = 0, num_frames: int = 0):
+    _require("torch", torch)
+    with wave.open(path, "rb") as wav_file:
+        channels = int(wav_file.getnchannels())
+        sample_width = int(wav_file.getsampwidth())
+        sample_rate = int(wav_file.getframerate())
+        total_frames = int(wav_file.getnframes())
+        wav_file.setpos(min(max(int(frame_offset), 0), total_frames))
+        frames_to_read = max(0, total_frames - wav_file.tell()) if int(num_frames) <= 0 else int(num_frames)
+        raw = wav_file.readframes(frames_to_read)
+
+    if np is not None:
+        if sample_width == 1:
+            waveform = torch.from_numpy(np.frombuffer(raw, dtype=np.uint8).copy()).to(torch.float32)
+            waveform = (waveform - 128.0) / 128.0
+        elif sample_width == 2:
+            waveform = torch.from_numpy(np.frombuffer(raw, dtype=np.int16).copy()).to(torch.float32) / 32768.0
+        elif sample_width == 4:
+            waveform = torch.from_numpy(np.frombuffer(raw, dtype=np.int32).copy()).to(torch.float32) / 2147483648.0
+        else:
+            raise RuntimeError(f"Unsupported WAV sample width: {sample_width}")
+    else:
+        if sample_width == 1:
+            waveform = torch.frombuffer(raw, dtype=torch.uint8).clone().to(torch.float32)
+            waveform = (waveform - 128.0) / 128.0
+        elif sample_width == 2:
+            waveform = torch.frombuffer(raw, dtype=torch.int16).clone().to(torch.float32) / 32768.0
+        elif sample_width == 4:
+            waveform = torch.frombuffer(raw, dtype=torch.int32).clone().to(torch.float32) / 2147483648.0
+        else:
+            raise RuntimeError(f"Unsupported WAV sample width: {sample_width}")
+
+    if waveform.numel() == 0:
+        waveform = torch.zeros((channels, 0), dtype=torch.float32)
+    else:
+        waveform = waveform.reshape(-1, channels).transpose(0, 1).contiguous()
+    return waveform, sample_rate
+
+
 class LTXLongAudioSegmentInfo:
     @classmethod
     def INPUT_TYPES(cls):
@@ -293,7 +333,7 @@ class CompatShowAnything:
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("output",)
     FUNCTION = "show"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def show(self, anything):
         return (anything,)
@@ -310,7 +350,7 @@ class CompatSimpleMath:
     RETURN_TYPES = ("INT", "FLOAT", "BOOLEAN")
     RETURN_NAMES = ("int", "float", "boolean")
     FUNCTION = "execute"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def execute(self, value, a=0, b=0, c=0):
         result = _safe_eval(value, {"a": a, "b": b, "c": c})
@@ -333,7 +373,7 @@ class CompatSeedList:
     RETURN_TYPES = ("INT", "INT")
     RETURN_NAMES = ("seed", "total")
     FUNCTION = "doit"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def doit(self, min_num, max_num, method, total, seed=0):
         min_num = int(min_num)
@@ -380,7 +420,7 @@ class CompatCompare:
     RETURN_TYPES = ("BOOLEAN",)
     RETURN_NAMES = ("boolean",)
     FUNCTION = "compare"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def compare(self, a=0, b=0, comparison="a == b"):
         return (bool(self.OPTIONS[comparison](a, b)),)
@@ -394,7 +434,7 @@ class CompatIfElse:
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("*",)
     FUNCTION = "pick"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def pick(self, boolean, on_true, on_false):
         return (on_true if boolean else on_false,)
@@ -408,7 +448,7 @@ class CompatIndexAnything:
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("out",)
     FUNCTION = "index"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def index(self, any, index):
         index = int(index)
@@ -437,7 +477,7 @@ class CompatBatchAnything:
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("batch",)
     FUNCTION = "batch"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def batch(self, any_1, any_2):
         if any_1 is None:
@@ -470,7 +510,7 @@ class CompatWhileLoopStart:
     RETURN_TYPES = tuple(["FLOW_CONTROL"] + [ANY_TYPE] * MAX_FLOW_NUM)
     RETURN_NAMES = tuple(["flow"] + [f"value{index}" for index in range(MAX_FLOW_NUM)])
     FUNCTION = "while_loop_open"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def while_loop_open(self, condition, **kwargs):
         values = []
@@ -498,7 +538,7 @@ class CompatWhileLoopEnd:
     RETURN_TYPES = tuple([ANY_TYPE] * MAX_FLOW_NUM)
     RETURN_NAMES = tuple([f"value{index}" for index in range(MAX_FLOW_NUM)])
     FUNCTION = "while_loop_close"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def _explore_dependencies(self, node_id, dynprompt, upstream, parent_ids):
         node_info = dynprompt.get_node(node_id)
@@ -511,7 +551,7 @@ class CompatWhileLoopEnd:
             display_id = dynprompt.get_display_node_id(parent_id)
             display_node = dynprompt.get_node(display_id)
             class_type = display_node["class_type"]
-            if class_type not in ["easy forLoopEnd", "easy whileLoopEnd"]:
+            if class_type not in ["LTXForLoopEnd", "LTXWhileLoopEnd"]:
                 parent_ids.append(display_id)
             if parent_id not in upstream:
                 upstream[parent_id] = []
@@ -604,14 +644,14 @@ class CompatForLoopStart:
     RETURN_TYPES = tuple(["FLOW_CONTROL", "INT"] + [ANY_TYPE] * (MAX_FLOW_NUM - 1))
     RETURN_NAMES = tuple(["flow", "index"] + [f"value{index}" for index in range(1, MAX_FLOW_NUM)])
     FUNCTION = "for_loop_start"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def for_loop_start(self, total, **kwargs):
         _require("GraphBuilder", GraphBuilder)
         graph = GraphBuilder()
         index = kwargs.get("initial_value0", 0)
         initial_values = {f"initial_value{num}": kwargs.get(f"initial_value{num}") for num in range(1, MAX_FLOW_NUM)}
-        graph.node("easy whileLoopStart", condition=total, initial_value0=index, **initial_values)
+        graph.node("LTXWhileLoopStart", condition=total, initial_value0=index, **initial_values)
         outputs = [kwargs.get(f"initial_value{num}") for num in range(1, MAX_FLOW_NUM)]
         return {"result": tuple(["stub", index] + outputs), "expand": graph.finalize()}
 
@@ -628,7 +668,7 @@ class CompatForLoopEnd:
     RETURN_TYPES = tuple([ANY_TYPE] * (MAX_FLOW_NUM - 1))
     RETURN_NAMES = tuple([f"value{index}" for index in range(1, MAX_FLOW_NUM)])
     FUNCTION = "for_loop_end"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def for_loop_end(self, flow, dynprompt=None, **kwargs):
         _require("GraphBuilder", GraphBuilder)
@@ -638,10 +678,10 @@ class CompatForLoopEnd:
         while_open = flow[0]
         for_start = dynprompt.get_node(while_open)
         total = for_start["inputs"]["total"]
-        sub = graph.node("easy simpleMath", value="a + b", a=[while_open, 1], b=1)
-        cond = graph.node("easy compare", a=sub.out(0), b=total, comparison="a < b")
+        sub = graph.node("LTXSimpleMath", value="a + b", a=[while_open, 1], b=1)
+        cond = graph.node("LTXCompare", a=sub.out(0), b=total, comparison="a < b")
         input_values = {f"initial_value{index}": kwargs.get(f"initial_value{index}") for index in range(1, MAX_FLOW_NUM)}
-        while_close = graph.node("easy whileLoopEnd", flow=flow, condition=cond.out(0), initial_value0=sub.out(0), **input_values)
+        while_close = graph.node("LTXWhileLoopEnd", flow=flow, condition=cond.out(0), initial_value0=sub.out(0), **input_values)
         return {"result": tuple(while_close.out(index) for index in range(1, MAX_FLOW_NUM)), "expand": graph.finalize()}
 
 
@@ -660,19 +700,36 @@ class CompatLoadAudioUpload:
     RETURN_TYPES = ("AUDIO", "FLOAT")
     RETURN_NAMES = ("audio", "duration")
     FUNCTION = "load_audio"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def load_audio(self, audio, start_time=0.0, duration=0.0):
         _require("torchaudio", torchaudio)
         path = _resolve_input_path(audio)
-        info = torchaudio.info(path)
-        sample_rate = int(info.sample_rate)
-        frame_offset = max(0, int(float(start_time) * sample_rate))
-        num_frames = 0 if float(duration) <= 0 else max(1, int(float(duration) * sample_rate))
-        if num_frames > 0:
-            waveform, actual_sample_rate = torchaudio.load(path, frame_offset=frame_offset, num_frames=num_frames)
-        else:
-            waveform, actual_sample_rate = torchaudio.load(path, frame_offset=frame_offset)
+        try:
+            if hasattr(torchaudio, "info"):
+                info = torchaudio.info(path)
+                sample_rate = int(info.sample_rate)
+                frame_offset = max(0, int(float(start_time) * sample_rate))
+                num_frames = 0 if float(duration) <= 0 else max(1, int(float(duration) * sample_rate))
+                if num_frames > 0:
+                    waveform, actual_sample_rate = torchaudio.load(path, frame_offset=frame_offset, num_frames=num_frames)
+                else:
+                    waveform, actual_sample_rate = torchaudio.load(path, frame_offset=frame_offset)
+            else:
+                waveform, actual_sample_rate = torchaudio.load(path)
+                sample_rate = int(actual_sample_rate)
+                frame_offset = max(0, int(float(start_time) * sample_rate))
+                num_frames = 0 if float(duration) <= 0 else max(1, int(float(duration) * sample_rate))
+                frame_end = waveform.shape[-1] if num_frames == 0 else min(waveform.shape[-1], frame_offset + num_frames)
+                waveform = waveform[..., frame_offset:frame_end]
+        except Exception:
+            suffix = pathlib.Path(path).suffix.lower()
+            if suffix != ".wav":
+                raise
+            sample_rate = _load_wav_fallback(path, 0, 0)[1]
+            frame_offset = max(0, int(float(start_time) * sample_rate))
+            num_frames = 0 if float(duration) <= 0 else max(1, int(float(duration) * sample_rate))
+            waveform, actual_sample_rate = _load_wav_fallback(path, frame_offset, num_frames)
         if waveform.dim() == 1:
             waveform = waveform.unsqueeze(0)
         audio_dict = {"waveform": waveform.unsqueeze(0).contiguous(), "sample_rate": int(actual_sample_rate)}
@@ -701,7 +758,7 @@ class CompatLoadImages:
     RETURN_TYPES = ("IMAGE", "MASK", "INT")
     RETURN_NAMES = ("IMAGE", "MASK", "frame_count")
     FUNCTION = "load_images"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def load_images(self, directory, image_load_cap=0, skip_first_images=0, select_every_nth=1, meta_batch=None):
         _require("numpy", np)
@@ -752,7 +809,7 @@ class CompatAudioConcatenate:
     RETURN_TYPES = ("AUDIO",)
     RETURN_NAMES = ("AUDIO",)
     FUNCTION = "concatenate"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def concatenate(self, audio1, audio2, direction):
         _require("torch", torch)
@@ -772,7 +829,7 @@ class CompatIntConstant:
     RETURN_TYPES = ("INT",)
     RETURN_NAMES = ("value",)
     FUNCTION = "get_value"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def get_value(self, value):
         return (int(value),)
@@ -794,7 +851,7 @@ class CompatSimpleCalculatorKJ:
     RETURN_TYPES = ("FLOAT", "INT", "BOOLEAN")
     RETURN_NAMES = ("FLOAT", "INT", "BOOLEAN")
     FUNCTION = "calculate"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def calculate(self, expression, **kwargs):
         values = {}
@@ -820,7 +877,7 @@ class CompatVAELoaderKJ:
     RETURN_TYPES = ("VAE",)
     RETURN_NAMES = ("VAE",)
     FUNCTION = "load_vae"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def load_vae(self, vae_name, device="main_device", dtype="bf16"):
         _require("folder_paths", folder_paths)
@@ -854,7 +911,7 @@ class CompatImageResizeKJv2:
     RETURN_TYPES = ("IMAGE", "INT", "INT", "MASK")
     RETURN_NAMES = ("IMAGE", "width", "height", "mask")
     FUNCTION = "resize"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def resize(self, image, width, height, upscale_method, keep_proportion, pad_color, crop_position, divisible_by, mask=None, device="cpu", unique_id=None):
         _require("torch", torch)
@@ -980,7 +1037,7 @@ class CompatLTX2NAG:
     RETURN_TYPES = ("MODEL",)
     RETURN_NAMES = ("model",)
     FUNCTION = "patch"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def patch(self, model, nag_scale, nag_alpha, nag_tau, nag_cond_video=None, nag_cond_audio=None, inplace=True):
         if comfy is None or mm is None or nag_scale == 0:
@@ -1060,7 +1117,7 @@ class CompatLTXVChunkFeedForward:
     RETURN_TYPES = ("MODEL",)
     RETURN_NAMES = ("model",)
     FUNCTION = "patch"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def patch(self, model, chunks, dim_threshold):
         if chunks == 1:
@@ -1084,7 +1141,7 @@ class CompatLTX2SamplingPreviewOverride:
     RETURN_TYPES = ("MODEL",)
     RETURN_NAMES = ("MODEL",)
     FUNCTION = "patch"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def patch(self, model, preview_rate, latent_upscale_model=None, vae=None):
         return (model.clone() if hasattr(model, "clone") else model,)
@@ -1103,7 +1160,22 @@ def _save_audio_wav(audio: dict[str, Any], destination: str) -> None:
     waveform = audio["waveform"]
     if waveform.dim() == 3:
         waveform = waveform[0]
-    torchaudio.save(destination, waveform.detach().cpu(), int(audio["sample_rate"]))
+    sample_rate = int(audio["sample_rate"])
+    try:
+        torchaudio.save(destination, waveform.detach().cpu(), sample_rate)
+    except Exception:
+        _require("torch", torch)
+        waveform = waveform.detach().cpu().clamp(-1.0, 1.0)
+        if waveform.dim() == 1:
+            waveform = waveform.unsqueeze(0)
+        channels = int(waveform.shape[0])
+        interleaved = waveform.transpose(0, 1).contiguous().reshape(-1)
+        pcm = interleaved.mul(32767.0).round().to(torch.int16).numpy().tobytes()
+        with wave.open(destination, "wb") as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm)
 
 
 def _tensor_to_uint8_frame(image_tensor) -> "Image.Image":
@@ -1151,7 +1223,7 @@ class CompatVideoCombine:
     RETURN_NAMES = ("Filenames",)
     OUTPUT_NODE = True
     FUNCTION = "combine_video"
-    CATEGORY = "LTX/Compat"
+    CATEGORY = "LTX/Workflow"
 
     def combine_video(
         self,
@@ -1228,6 +1300,10 @@ NODE_CLASS_MAPPINGS = {
     "LTXIfElse": CompatIfElse,
     "LTXIndexAnything": CompatIndexAnything,
     "LTXBatchAnything": CompatBatchAnything,
+    "LTXWhileLoopStart": CompatWhileLoopStart,
+    "LTXWhileLoopEnd": CompatWhileLoopEnd,
+    "LTXForLoopStart": CompatForLoopStart,
+    "LTXForLoopEnd": CompatForLoopEnd,
     "LTXLoadAudioUpload": CompatLoadAudioUpload,
     "LTXLoadImages": CompatLoadImages,
     "LTXAudioConcatenate": CompatAudioConcatenate,
@@ -1239,28 +1315,6 @@ NODE_CLASS_MAPPINGS = {
     "LTXSamplingPreviewOverride": CompatLTX2SamplingPreviewOverride,
     "LTXNormalizedAttentionGuidance": CompatLTX2NAG,
     "LTXVideoCombine": CompatVideoCombine,
-    "easy showAnything": CompatShowAnything,
-    "easy simpleMath": CompatSimpleMath,
-    "easy seedList": CompatSeedList,
-    "easy compare": CompatCompare,
-    "easy ifElse": CompatIfElse,
-    "easy indexAnything": CompatIndexAnything,
-    "easy batchAnything": CompatBatchAnything,
-    "easy whileLoopStart": CompatWhileLoopStart,
-    "easy whileLoopEnd": CompatWhileLoopEnd,
-    "easy forLoopStart": CompatForLoopStart,
-    "easy forLoopEnd": CompatForLoopEnd,
-    "VHS_LoadAudioUpload": CompatLoadAudioUpload,
-    "VHS_LoadImages": CompatLoadImages,
-    "VHS_VideoCombine": CompatVideoCombine,
-    "AudioConcatenate": CompatAudioConcatenate,
-    "INTConstant": CompatIntConstant,
-    "SimpleCalculatorKJ": CompatSimpleCalculatorKJ,
-    "VAELoaderKJ": CompatVAELoaderKJ,
-    "ImageResizeKJv2": CompatImageResizeKJv2,
-    "LTXVChunkFeedForward": CompatLTXVChunkFeedForward,
-    "LTX2SamplingPreviewOverride": CompatLTX2SamplingPreviewOverride,
-    "LTX2_NAG": CompatLTX2NAG,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {key: key for key in NODE_CLASS_MAPPINGS}

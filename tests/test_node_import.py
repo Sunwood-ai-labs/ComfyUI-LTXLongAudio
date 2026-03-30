@@ -11,9 +11,12 @@ def test_node_module_exports():
 
     assert "LTXLongAudioSegmentInfo" in module.NODE_CLASS_MAPPINGS
     assert "LTXRandomImageIndex" in module.NODE_CLASS_MAPPINGS
-    assert "easy forLoopStart" in module.NODE_CLASS_MAPPINGS
-    assert "VHS_VideoCombine" in module.NODE_CLASS_MAPPINGS
-    assert "SimpleCalculatorKJ" in module.NODE_CLASS_MAPPINGS
+    assert "LTXForLoopStart" in module.NODE_CLASS_MAPPINGS
+    assert "LTXForLoopEnd" in module.NODE_CLASS_MAPPINGS
+    assert "LTXVideoCombine" in module.NODE_CLASS_MAPPINGS
+    assert "LTXSimpleCalculator" in module.NODE_CLASS_MAPPINGS
+    for legacy in ("easy forLoopStart", "VHS_VideoCombine", "SimpleCalculatorKJ"):
+        assert legacy not in module.NODE_CLASS_MAPPINGS
 
 
 def test_pure_node_behaviors():
@@ -32,11 +35,11 @@ def test_pure_node_behaviors():
     assert is_last is True
     assert segment_count == 3
 
-    simple_math = module.CompatSimpleMath()
+    simple_math = module.NODE_CLASS_MAPPINGS["LTXSimpleMath"]()
     assert simple_math.execute("ceil(a / b)", a=21, b=10) == (3, 3.0, True)
 
-    compare = module.CompatCompare()
+    compare = module.NODE_CLASS_MAPPINGS["LTXCompare"]()
     assert compare.compare(5, 10, "a < b") == (True,)
 
-    formula = module.CompatSimpleCalculatorKJ()
+    formula = module.NODE_CLASS_MAPPINGS["LTXSimpleCalculator"]()
     assert formula.calculate("a + b", a=2, b=3) == (5.0, 5, True)

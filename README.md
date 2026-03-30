@@ -1,19 +1,25 @@
 # ComfyUI-LTXLongAudio
 
-Custom nodes for long-audio LTX workflows in ComfyUI.
+Native `LTX*` custom nodes for long-audio LTX workflows in ComfyUI.
 
 This repository is intended for setups where custom nodes are published on GitHub and cloned from Google Colab into `ComfyUI/custom_nodes`.
 
 ## Included Nodes
 
-- `LTX Long Audio Segment Info`
+- `LTXLongAudioSegmentInfo`
   Computes per-segment timing and frame information for loop-based long-audio workflows.
-- `LTX Random Image Index`
+- `LTXRandomImageIndex`
   Returns a deterministic random image index for a segment index and seed.
-- `LTX*` workflow helper nodes
-  Provide long-audio math, loop, image-loading, audio-loading, audio-concatenation, and video-combine helpers.
-- Compatibility shims for the workflow
-  This repo now exports the node ids used by `Easy Use`, `VideoHelperSuite`, and `KJNodes` that are referenced by the bundled LTX workflow, so Google Colab only needs this repo for those parts.
+- `LTXLoadAudioUpload` and `LTXLoadImages`
+  Load the source song and a reference-frame directory directly from the ComfyUI input folder.
+- `LTXSimpleMath`, `LTXCompare`, `LTXIfElse`, `LTXIndexAnything`, `LTXBatchAnything`
+  Workflow helpers used to drive segment loops and image selection.
+- `LTXWhileLoopStart`, `LTXWhileLoopEnd`, `LTXForLoopStart`, `LTXForLoopEnd`
+  Native loop-control nodes for long-audio workflows.
+- `LTXAudioConcatenate` and `LTXVideoCombine`
+  Merge per-segment audio and mux the final video without relying on external node packs.
+- `LTXIntConstant`, `LTXSimpleCalculator`, `LTXVAELoader`, `LTXImageResize`, `LTXChunkFeedForward`, `LTXSamplingPreviewOverride`, `LTXNormalizedAttentionGuidance`
+  Native replacements for the extra workflow utilities used by the bundled LTX graph.
 
 ## Install
 
@@ -38,8 +44,8 @@ The current workflow expects:
 ## Notes
 
 - Segment frame counts are quantized in blocks of 8 frames to stay friendly with LTX-style workflows.
-- `LTX2 Sampling Preview Override` is intentionally a lightweight compatibility shim. It keeps the workflow loadable without pulling in extra preview JS.
 - Audio loading uses `torchaudio`.
+- Final video muxing uses `ffmpeg`, so the Colab runtime should install it before launching ComfyUI.
 
 ## License
 

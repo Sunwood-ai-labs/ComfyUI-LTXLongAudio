@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 - 2026-03-30
+
+- Switched the public workflow surface to native `LTX*` node types instead of legacy compatibility names
+- Added native loop-control mappings for `LTXWhileLoop*` and `LTXForLoop*`
+- Updated docs and tests for the native long-audio workflow release
+
 ## 0.2.0 - 2026-03-30
 
 - Added compatibility shims for the workflow nodes previously taken from `Easy Use`, `VideoHelperSuite`, and `KJNodes`
