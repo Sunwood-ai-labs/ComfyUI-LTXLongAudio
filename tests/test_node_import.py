@@ -28,6 +28,10 @@ def test_node_module_exports():
     assert "LTXAudioSlice" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioDuration" in module.NODE_CLASS_MAPPINGS
     assert "LTXDummyRenderSegment" in module.NODE_CLASS_MAPPINGS
+    assert "LTXSplitAudioIntoChunks" in module.NODE_CLASS_MAPPINGS
+    assert "LTXRandomSelectChunkImages" in module.NODE_CLASS_MAPPINGS
+    assert "LTXDummyRenderChunkSequence" in module.NODE_CLASS_MAPPINGS
+    assert "LTXConcatenateDummySegments" in module.NODE_CLASS_MAPPINGS
     assert "LTXBuildChunkedStillVideo" in module.NODE_CLASS_MAPPINGS
     assert "LTXAppendAudio" in module.NODE_CLASS_MAPPINGS
     assert "LTXEnsureAudio" in module.NODE_CLASS_MAPPINGS
@@ -106,6 +110,34 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         assert segment_fps == 2.0
         assert segment_frame_count == 5
         assert segment_duration == 2.0
+
+        split_chunks = module.NODE_CLASS_MAPPINGS["LTXSplitAudioIntoChunks"]()
+        audio_chunks, audio_chunk_count, total_duration = split_chunks.split(
+            {"waveform": waveform, "sample_rate": sample_rate},
+            segment_seconds=2,
+        )
+        assert audio_chunk_count == 2
+        assert total_duration == 4.0
+        assert len(audio_chunks["segments"]) == 2
+        assert audio_chunks["segments"][0]["waveform"].shape[-1] == 16
+
+        random_chunk_images = module.NODE_CLASS_MAPPINGS["LTXRandomSelectChunkImages"]()
+        selected_images, selected_count = random_chunk_images.select(batched_images, audio_chunks, seed=1234)
+        assert selected_images.shape == (2, 4, 4, 3)
+        assert selected_count == 2
+
+        render_chunk_sequence = module.NODE_CLASS_MAPPINGS["LTXDummyRenderChunkSequence"]()
+        dummy_segments, sequence_fps, sequence_count = render_chunk_sequence.render(selected_images, audio_chunks, fps=2.0)
+        assert sequence_fps == 2.0
+        assert sequence_count == 2
+        assert len(dummy_segments["segments"]) == 2
+
+        concatenate_dummy_segments = module.NODE_CLASS_MAPPINGS["LTXConcatenateDummySegments"]()
+        concatenated_images, concatenated_audio, concatenated_fps, concatenated_count = concatenate_dummy_segments.concatenate(dummy_segments)
+        assert concatenated_images.shape == (10, 4, 4, 3)
+        assert concatenated_audio["waveform"].shape[-1] == 32
+        assert concatenated_fps == 2.0
+        assert concatenated_count == 2
 
         chunk_builder = module.NODE_CLASS_MAPPINGS["LTXBuildChunkedStillVideo"]()
         built_images, built_audio, built_fps, built_segment_count = chunk_builder.build(

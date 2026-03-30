@@ -25,12 +25,14 @@ def test_sample_workflow_layout_passes():
     )
 
     assert report["issues"] == []
-    assert report["group_count"] == 4
-    assert report["node_count"] == 8
+    assert report["group_count"] == 3
+    assert report["node_count"] == 9
     assert report["node_group_matches"]["Frames Folder"] == ["Inputs"]
-    assert report["node_group_matches"]["Source Audio Duration"] == ["Inputs"]
-    assert report["node_group_matches"]["Segment Count Preview"] == ["Chunk Planning"]
-    assert report["node_group_matches"]["Split + Randomize + Dummy Render + Concat (20s Chunks)"] == ["Chunk Builder"]
+    assert report["node_group_matches"]["Source Audio Upload"] == ["Inputs"]
+    assert report["node_group_matches"]["1. Split Audio Into Chunks"] == ["Explicit Chunk Steps"]
+    assert report["node_group_matches"]["2. Random Select Chunk Images"] == ["Explicit Chunk Steps"]
+    assert report["node_group_matches"]["3. Dummy Render Chunk Segments"] == ["Explicit Chunk Steps"]
+    assert report["node_group_matches"]["4. Concatenate Chunk Segments"] == ["Explicit Chunk Steps"]
     assert report["node_group_matches"]["Video Combine + Preview (20s Chunks)"] == ["Output Preview"]
     assert report["app_mode"]["enabled"] is True
     assert report["app_mode"]["selected_inputs"] == [
@@ -39,7 +41,7 @@ def test_sample_workflow_layout_passes():
         [3, "value"],
         [4, "value"],
     ]
-    assert report["app_mode"]["selected_outputs"] == [6]
+    assert report["app_mode"]["selected_outputs"] == [9]
 
 
 def test_sample_workflow_defaults_are_populated():

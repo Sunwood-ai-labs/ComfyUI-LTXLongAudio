@@ -1016,6 +1016,171 @@ class LTXDummyRenderSegment:
         return _render_dummy_segment(image, audio, fps)
 
 
+class LTXSplitAudioIntoChunks:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO",),
+                "segment_seconds": ("INT", {"default": 20, "min": 1, "max": 3600, "step": 1}),
+            }
+        }
+
+    RETURN_TYPES = ("LTX_AUDIO_CHUNKS", "INT", "FLOAT")
+    RETURN_NAMES = ("audio_chunks", "segment_count", "total_duration")
+    FUNCTION = "split"
+    CATEGORY = "LTX/LongAudio"
+
+    def split(self, audio, segment_seconds):
+        _require("torch", torch)
+        waveform = audio["waveform"]
+        sample_rate = max(int(audio["sample_rate"]), 1)
+        total_seconds = float(waveform.shape[-1] / sample_rate)
+        segment_seconds = max(int(segment_seconds), 1)
+        segment_count = int(math.ceil(total_seconds / segment_seconds)) if total_seconds > 0 else 0
+
+        segments = []
+        for segment_index in range(segment_count):
+            start_time = float(segment_index * segment_seconds)
+            current_seconds = min(float(segment_seconds), max(total_seconds - start_time, 0.0))
+            if current_seconds <= 0:
+                continue
+            start_frame = max(0, int(round(start_time * sample_rate)))
+            audio_frames = max(1, int(round(current_seconds * sample_rate)))
+            end_frame = min(waveform.shape[-1], start_frame + audio_frames)
+            segments.append(
+                {
+                    "waveform": waveform[..., start_frame:end_frame].contiguous(),
+                    "sample_rate": sample_rate,
+                    "start_time": start_time,
+                    "duration": current_seconds,
+                }
+            )
+
+        chunk_data = {
+            "segments": segments,
+            "sample_rate": sample_rate,
+            "segment_seconds": segment_seconds,
+            "total_duration": total_seconds,
+        }
+        return chunk_data, len(segments), total_seconds
+
+
+class LTXRandomSelectChunkImages:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "audio_chunks": ("LTX_AUDIO_CHUNKS",),
+                "seed": ("INT", {"default": 1234, "min": 0, "max": 2**31 - 1, "step": 1}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT")
+    RETURN_NAMES = ("selected_images", "segment_count")
+    FUNCTION = "select"
+    CATEGORY = "LTX/LongAudio"
+
+    def select(self, images, audio_chunks, seed):
+        _require("torch", torch)
+        if images.dim() == 3:
+            images = images.unsqueeze(0)
+        if images.dim() != 4:
+            raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
+        image_count = int(images.shape[0])
+        if image_count < 1:
+            raise ValueError("At least one image is required.")
+
+        segments = list(audio_chunks.get("segments", []))
+        if not segments:
+            return images[:1].contiguous(), 0
+
+        selected = []
+        for segment_index, _segment in enumerate(segments):
+            rng = random.Random(int(seed) + (segment_index * 9973))
+            image_index = rng.randrange(image_count)
+            selected.append(images[image_index:image_index + 1])
+        return torch.cat(selected, dim=0).contiguous(), len(segments)
+
+
+class LTXDummyRenderChunkSequence:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "selected_images": ("IMAGE",),
+                "audio_chunks": ("LTX_AUDIO_CHUNKS",),
+                "fps": ("FLOAT", {"default": 6.0, "min": 1.0, "max": 120.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("LTX_DUMMY_SEGMENTS", "FLOAT", "INT")
+    RETURN_NAMES = ("dummy_segments", "frame_rate", "segment_count")
+    FUNCTION = "render"
+    CATEGORY = "LTX/LongAudio"
+
+    def render(self, selected_images, audio_chunks, fps):
+        _require("torch", torch)
+        if selected_images.dim() == 3:
+            selected_images = selected_images.unsqueeze(0)
+        if selected_images.dim() != 4:
+            raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
+
+        segments = list(audio_chunks.get("segments", []))
+        if not segments:
+            return {"segments": [], "frame_rate": max(float(fps), 1.0)}, max(float(fps), 1.0), 0
+
+        rendered_segments = []
+        for segment_index, segment_audio in enumerate(segments):
+            image_index = min(segment_index, selected_images.shape[0] - 1)
+            image = selected_images[image_index:image_index + 1]
+            segment_images, rendered_audio, frame_rate, frame_count, duration = _render_dummy_segment(image, segment_audio, fps)
+            rendered_segments.append(
+                {
+                    "images": segment_images,
+                    "audio": rendered_audio,
+                    "frame_count": frame_count,
+                    "duration": duration,
+                    "start_time": float(segment_audio.get("start_time", 0.0)),
+                }
+            )
+
+        return {"segments": rendered_segments, "frame_rate": frame_rate}, frame_rate, len(rendered_segments)
+
+
+class LTXConcatenateDummySegments:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"dummy_segments": ("LTX_DUMMY_SEGMENTS",)}}
+
+    RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT", "INT")
+    RETURN_NAMES = ("images", "audio", "frame_rate", "segment_count")
+    FUNCTION = "concatenate"
+    CATEGORY = "LTX/LongAudio"
+
+    def concatenate(self, dummy_segments):
+        _require("torch", torch)
+        segments = list(dummy_segments.get("segments", []))
+        frame_rate = max(float(dummy_segments.get("frame_rate", 1.0)), 1.0)
+        if not segments:
+            raise ValueError("No dummy segments were provided for concatenation.")
+
+        image_batches = [segment["images"] for segment in segments]
+        audio_segments = [segment["audio"] for segment in segments]
+        sample_rate = max(int(audio_segments[0]["sample_rate"]), 1)
+        for audio in audio_segments[1:]:
+            if int(audio["sample_rate"]) != sample_rate:
+                raise ValueError("Audio sample rates must match before concatenation.")
+
+        merged_images = torch.cat(image_batches, dim=0).contiguous()
+        merged_audio = {
+            "waveform": torch.cat([audio["waveform"] for audio in audio_segments], dim=-1).contiguous(),
+            "sample_rate": sample_rate,
+        }
+        return merged_images, merged_audio, frame_rate, len(segments)
+
+
 class LTXBuildChunkedStillVideo:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1035,51 +1200,11 @@ class LTXBuildChunkedStillVideo:
     CATEGORY = "LTX/LongAudio"
 
     def build(self, images, audio, segment_seconds, seed, fps):
-        _require("torch", torch)
-        if images.dim() == 3:
-            images = images.unsqueeze(0)
-        if images.dim() != 4:
-            raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
-        image_count = int(images.shape[0])
-        if image_count < 1:
-            raise ValueError("At least one image is required.")
-
-        waveform = audio["waveform"]
-        sample_rate = max(int(audio["sample_rate"]), 1)
-        total_seconds = float(waveform.shape[-1] / sample_rate)
-        segment_seconds = max(int(segment_seconds), 1)
-        fps = max(float(fps), 1.0)
-        segment_count = int(math.ceil(total_seconds / segment_seconds)) if total_seconds > 0 else 0
-
-        if segment_count == 0:
-            return images[:1].contiguous(), {"waveform": waveform[..., :0].contiguous(), "sample_rate": sample_rate}, fps, 0
-
-        image_batches = []
-        audio_slices = []
-        for segment_index in range(segment_count):
-            start_time = float(segment_index * segment_seconds)
-            current_seconds = min(float(segment_seconds), max(total_seconds - start_time, 0.0))
-            if current_seconds <= 0:
-                continue
-
-            rng = random.Random(int(seed) + (segment_index * 9973))
-            image_index = rng.randrange(image_count)
-            selected_image = images[image_index:image_index + 1]
-
-            start_frame = max(0, int(round(start_time * sample_rate)))
-            audio_frames = max(1, int(round(current_seconds * sample_rate)))
-            end_frame = min(waveform.shape[-1], start_frame + audio_frames)
-            segment_audio = {
-                "waveform": waveform[..., start_frame:end_frame].contiguous(),
-                "sample_rate": sample_rate,
-            }
-            segment_images, segment_audio, _frame_rate, _frame_count, _duration = _render_dummy_segment(selected_image, segment_audio, fps)
-            image_batches.append(segment_images)
-            audio_slices.append(segment_audio["waveform"])
-
-        merged_images = torch.cat(image_batches, dim=0).contiguous()
-        merged_audio = {"waveform": torch.cat(audio_slices, dim=-1).contiguous(), "sample_rate": sample_rate}
-        return merged_images, merged_audio, fps, segment_count
+        audio_chunks, _segment_count, _total_duration = LTXSplitAudioIntoChunks().split(audio, segment_seconds)
+        selected_images, _selected_count = LTXRandomSelectChunkImages().select(images, audio_chunks, seed)
+        dummy_segments, frame_rate, _dummy_count = LTXDummyRenderChunkSequence().render(selected_images, audio_chunks, fps)
+        merged_images, merged_audio, _merged_rate, segment_count = LTXConcatenateDummySegments().concatenate(dummy_segments)
+        return merged_images, merged_audio, frame_rate, segment_count
 
 
 class LTXAppendAudio:
@@ -1746,6 +1871,10 @@ NODE_CLASS_MAPPINGS = {
     "LTXAudioSlice": LTXAudioSlice,
     "LTXAudioDuration": LTXAudioDuration,
     "LTXDummyRenderSegment": LTXDummyRenderSegment,
+    "LTXSplitAudioIntoChunks": LTXSplitAudioIntoChunks,
+    "LTXRandomSelectChunkImages": LTXRandomSelectChunkImages,
+    "LTXDummyRenderChunkSequence": LTXDummyRenderChunkSequence,
+    "LTXConcatenateDummySegments": LTXConcatenateDummySegments,
     "LTXBuildChunkedStillVideo": LTXBuildChunkedStillVideo,
     "LTXAppendAudio": LTXAppendAudio,
     "LTXEnsureAudio": LTXEnsureAudio,

@@ -24,8 +24,8 @@ DEFAULT_INPUT_DIR = Path(r"D:\ComfyUI\input")
 DEFAULT_OUTPUT_DIR = Path(r"D:\ComfyUI\output")
 DEFAULT_TEMP_DIR = Path(r"D:\ComfyUI")
 DEFAULT_DATABASE_URL = "sqlite:///D:/ComfyUI/user/comfyui_ci.db"
-DEFAULT_WORKFLOW = Path(r"D:\Prj\ComfyUI_LTX2_3_TI2V\LTXLongAudio_CustomNodes_SmokeTest.json")
 CUSTOM_NODE_REPO = Path(__file__).resolve().parents[1]
+DEFAULT_WORKFLOW = CUSTOM_NODE_REPO / "samples" / "workflows" / "LTXLongAudio_CustomNodes_SmokeTest.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -210,8 +210,8 @@ def wait_for_object_info(base_url: str, timeout: float) -> dict[str, Any]:
     last_error: Exception | None = None
     while time.time() < deadline:
         try:
-            data = json_request("GET", f"{base_url}/object_info/LTXLoadAudioUpload", timeout=5.0)
-            if data.get("LTXLoadAudioUpload"):
+            data = json_request("GET", f"{base_url}/object_info/LTXDummyRenderChunkSequence", timeout=5.0)
+            if data.get("LTXDummyRenderChunkSequence"):
                 return data
         except Exception as error:  # noqa: BLE001
             last_error = error

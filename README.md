@@ -1,121 +1,178 @@
-# ComfyUI-LTXLongAudio
+<p align="center">
+  <img src="docs/public/ogp.svg" alt="ComfyUI-LTXLongAudio hero card" width="900">
+</p>
 
-Native `LTX*` custom nodes for long-audio LTX workflows in ComfyUI.
+<p align="center">
+  <strong>Native <code>LTX*</code> custom nodes for long-audio ComfyUI workflows.</strong><br>
+  Chunk planning, frame-folder selection, loop control, still-video assembly, and final MP4 preview in one repository.
+</p>
 
-This repository is intended for setups where custom nodes are published on GitHub and cloned from Google Colab into `ComfyUI/custom_nodes`.
+<p align="center">
+  <a href="https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio/actions/workflows/ci.yml"><img src="https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio/actions/workflows/deploy-docs.yml"><img src="https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio/actions/workflows/deploy-docs.yml/badge.svg" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-0B67D1" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/python-uv-00A9A8" alt="Managed with uv">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-F7B500" alt="GPL-3.0-or-later"></a>
+</p>
 
-## Included Nodes
+<p align="center">
+  <a href="README.md"><strong>English</strong></a>
+  ·
+  <a href="README.ja.md">日本語</a>
+  ·
+  <a href="https://sunwood-ai-labs.github.io/ComfyUI-LTXLongAudio/">Docs</a>
+</p>
 
-- `LTXLongAudioSegmentInfo`
-  Computes per-segment timing and frame information for loop-based long-audio workflows.
-- `LTXRandomImageIndex`
-  Returns a deterministic random image index for a segment index and seed.
-- `LTXLoadAudioUpload`, `LTXLoadImageUpload`, `LTXBatchUploadedFrames`, and `LTXLoadImages`
-  Load an uploaded song, upload individual reference frames, batch uploaded frames, or load a reference-frame directory directly from the ComfyUI input folder.
-- `LTXAudioSlice`
-  Cuts a segment from an already loaded audio clip, so workflows only need one audio upload control.
-- `LTXDummyRenderSegment`
-  Turns one image plus one sliced audio chunk into a dummy still-video segment with a computed frame count.
-- `LTXBuildChunkedStillVideo`
-  Splits a full song into chunk-sized segments, chooses a deterministic random frame per chunk, runs the dummy segment renderer for each chunk, and concatenates the result back into one image batch plus audio track.
-- `LTXAppendImageBatch` and `LTXAppendAudio`
-  Append per-segment still-video frames and sliced audio clips while the workflow loop walks across the full song.
-- `LTXEnsureImageBatch` and `LTXEnsureAudio`
-  Convert loop outputs back into explicit `IMAGE` and `AUDIO` types before the final mux node.
-- `LTXSimpleMath`, `LTXCompare`, `LTXIfElse`, `LTXIndexAnything`, `LTXBatchAnything`
-  Workflow helpers used to drive segment loops and image selection.
-- `LTXWhileLoopStart`, `LTXWhileLoopEnd`, `LTXForLoopStart`, `LTXForLoopEnd`
-  Native loop-control nodes for long-audio workflows.
-- `LTXAudioConcatenate` and `LTXVideoCombine`
-  Merge per-segment audio and mux the final video without relying on external node packs.
-- `LTXIntConstant`, `LTXSimpleCalculator`, `LTXVAELoader`, `LTXImageResize`, `LTXChunkFeedForward`, `LTXSamplingPreviewOverride`, `LTXNormalizedAttentionGuidance`
-  Native replacements for the extra workflow utilities used by the bundled LTX graph.
+## Waveform Overview
 
-## Install
+This repository packages the native `LTX*` nodes used by the bundled long-audio smoke workflow, so you can keep the whole graph on GitHub without depending on external node packs for loop control, chunk assembly, audio concatenation, or final preview output.
 
-```bash
-cd /content/ComfyUI/custom_nodes
-git clone https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio.git
-pip install -r ComfyUI-LTXLongAudio/requirements.txt
-```
-
-Then restart ComfyUI.
-
-## Google Colab
-
-This repository is designed for the common Colab flow where custom nodes are installed with `git clone` into `ComfyUI/custom_nodes`.
-
-The bundled smoke workflow is folder-plus-audio:
-
-- upload one song with the built-in `LoadAudio` control
-- choose one frame folder from the ComfyUI input list
-- split the song into 20-second chunks by default
-- pick one deterministic random frame per chunk from the selected folder
-- turn each chunk into a dummy still-video segment
-- concatenate every chunk back into one previewable mp4
-- keep `ffmpeg` available in the runtime
-
-## Samples
-
-- Sample workflow: `samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
-- Sample input placeholders: `samples/input/`
-- Layout checker: `scripts/check_workflow_layout.py`
-
-The bundled smoke workflow uses concrete sample defaults:
-
-- frame folder: `samples/input/frames_pool`
-- audio input: `HOWL AT THE HAIRPIN2.wav`
-
-The current sample graph uses:
-
-- ComfyUI built-in `LoadAudio` for the upload widget
-- `LTXLoadImages` for folder selection
-- `LTXAudioDuration` and `LTXLongAudioSegmentInfo` for duration-aware chunk planning
-- `LTXBuildChunkedStillVideo` for the actual `20s chunk -> random frame -> dummy render -> concat` behavior
-- `LTXVideoCombine` for the final MP4 output and ComfyUI preview payload
-
-The checked-in sample frame folders are intentionally lightweight:
-
-- `samples/input/frames_pool` ships quarter-resolution frames at `688x384`
-- `samples/input/demo_frames` ships tiny `192x108` debug frames
-
-This keeps CPU-side smoke runs practical while still validating the real long-audio path.
-
-The smoke script stages those sample assets into the ComfyUI input directory and validates the workflow as-is by default. Use `--auto-fill-missing` only if you intentionally want fallback behavior for blank widgets.
-
-If App mode still shows stale controls after updating this repository, fully restart the ComfyUI backend or Desktop app. A hot reload can keep old custom-node input schemas alive.
-
-If a preview looks unexpectedly short, stale backend state is the first thing to check. The sample workflow itself is designed to render the full source audio length, not only the first 20 seconds.
-
-Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues are checked:
-
-```bash
-uv run python scripts/check_workflow_layout.py \
-  samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
-  --require-all-nodes-in-groups \
-  --require-app-mode
-
-# Run the exact smoke workflow through a real ComfyUI /prompt API session.
-uv run python scripts/run_comfyui_api_smoke.py \
-  --workflow D:/Prj/ComfyUI-LTXLongAudio/samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
-```
-
-The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior.
-
-The App mode surface is intentionally small:
+It is designed for the common Colab and desktop flow where custom nodes are cloned into `ComfyUI/custom_nodes`, then exercised through a small App mode surface:
 
 - `Frames Folder`
 - `Source Audio Upload`
 - `Segment Seconds`
 - `Random Seed`
 
-Video preview appears on the final `LTXVideoCombine` output node, which returns ComfyUI's animated preview payload.
+## Signal Highlights
 
-## Notes
+- Native long-audio helpers: `LTXAudioDuration`, `LTXLongAudioSegmentInfo`, `LTXAudioSlice`, and `LTXAudioConcatenate` handle duration-aware chunk planning and audio stitching.
+- Native image and folder inputs: `LTXLoadAudioUpload`, `LTXLoadImageUpload`, `LTXBatchUploadedFrames`, and `LTXLoadImages` keep folder-plus-audio workflows inside core ComfyUI inputs.
+- Native loop control: `LTXWhileLoopStart`, `LTXWhileLoopEnd`, `LTXForLoopStart`, and `LTXForLoopEnd` remove the need for legacy loop-control packs.
+- Native preview path: `LTXBuildChunkedStillVideo`, `LTXEnsureImageBatch`, `LTXEnsureAudio`, and `LTXVideoCombine` generate one previewable MP4 from per-chunk frames plus the original full-length audio.
+- Native workflow utilities: `LTXSimpleMath`, `LTXSimpleCalculator`, `LTXCompare`, `LTXIfElse`, `LTXIndexAnything`, `LTXBatchAnything`, `LTXSeedList`, and `LTXShowAnything` cover the helper surfaces used by the shipped graph.
+- Native LTX utility replacements: `LTXVAELoader`, `LTXImageResize`, `LTXChunkFeedForward`, `LTXSamplingPreviewOverride`, and `LTXNormalizedAttentionGuidance` replace the extra utility nodes required by the bundled graph.
 
+## Quick Start
+
+```bash
+cd /content/ComfyUI/custom_nodes
+git clone https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio.git
+uv pip install -r ComfyUI-LTXLongAudio/requirements.txt
+```
+
+Then restart ComfyUI.
+
+The checked-in workflow is ready for the common folder-plus-audio smoke pass:
+
+1. Upload one song with ComfyUI's built-in `LoadAudio` control.
+2. Select `samples/input/frames_pool` or another input-folder source.
+3. Keep the default 20-second chunk length, or change `Segment Seconds`.
+4. Let `LTXBuildChunkedStillVideo` pick one deterministic frame per chunk.
+5. Preview the final MP4 from `LTXVideoCombine`.
+
+## Sample Assets
+
+- Workflow: `samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
+- Sample asset root: `samples/input/`
+- Layout checker: `scripts/check_workflow_layout.py`
+- API smoke runner: `scripts/run_comfyui_api_smoke.py`
+
+The bundled workflow ships with concrete defaults:
+
+- Frame folder: `samples/input/frames_pool`
+- Audio input: `HOWL AT THE HAIRPIN2.wav`
+
+The sample asset set stays intentionally lightweight so CPU-side smoke runs remain practical:
+
+- `samples/input/frames_pool` contains quarter-resolution `688x384` frames.
+- `samples/input/demo_frames` contains tiny `192x108` debug frames.
+- `samples/input/ltx-demo-tone.wav` remains available for minimal local testing.
+
+More detail lives in [samples/README.md](samples/README.md) and the published guides:
+
+- [Getting Started](docs/guide/getting-started.md)
+- [Usage Guide](docs/guide/usage.md)
+- [Architecture](docs/guide/architecture.md)
+- [Troubleshooting](docs/guide/troubleshooting.md)
+
+## Node Catalog
+
+### Inputs and staging
+
+- `LTXLoadAudioUpload`
+- `LTXLoadImageUpload`
+- `LTXLoadImages`
+- `LTXBatchUploadedFrames`
+- `LTXRepeatImageBatch`
+
+### Chunk planning and media assembly
+
+- `LTXAudioDuration`
+- `LTXLongAudioSegmentInfo`
+- `LTXRandomImageIndex`
+- `LTXAudioSlice`
+- `LTXBuildChunkedStillVideo`
+- `LTXDummyRenderSegment`
+- `LTXAppendImageBatch`
+- `LTXAppendAudio`
+- `LTXEnsureImageBatch`
+- `LTXEnsureAudio`
+- `LTXAudioConcatenate`
+- `LTXVideoCombine`
+
+### Flow control and utility nodes
+
+- `LTXWhileLoopStart`, `LTXWhileLoopEnd`
+- `LTXForLoopStart`, `LTXForLoopEnd`
+- `LTXIfElse`
+- `LTXCompare`
+- `LTXSimpleMath`
+- `LTXSimpleCalculator`
+- `LTXIntConstant`
+- `LTXIndexAnything`
+- `LTXBatchAnything`
+- `LTXSeedList`
+- `LTXShowAnything`
+
+### LTX workflow replacements
+
+- `LTXVAELoader`
+- `LTXImageResize`
+- `LTXChunkFeedForward`
+- `LTXSamplingPreviewOverride`
+- `LTXNormalizedAttentionGuidance`
+
+## Verification Loop
+
+Use `uv` for local verification and publishing checks:
+
+```bash
+uv run pytest
+
+uv run python scripts/check_workflow_layout.py \
+  samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --require-all-nodes-in-groups \
+  --require-app-mode
+
+uv run python scripts/run_comfyui_api_smoke.py \
+  --workflow samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
+```
+
+The bundled smoke workflow includes `extra.linearData` and `extra.linearMode`, matching the current ComfyUI App mode builder behavior.
+
+## Troubleshooting Notes
+
+- Fully restart the ComfyUI backend or desktop app after updating custom nodes. Hot reload can preserve stale input schemas.
+- If a preview looks unexpectedly short, stale backend state is the first thing to check. The bundled graph is intended to render the full source audio length, not only the first chunk.
+- Final muxing uses `ffmpeg`, so the runtime should expose `ffmpeg` before you launch ComfyUI.
 - Segment frame counts are quantized in blocks of 8 frames to stay friendly with LTX-style workflows.
-- Audio loading uses `torchaudio`.
-- Final video muxing uses `ffmpeg`, so the Colab runtime should install it before launching ComfyUI.
+
+## Repository Layout
+
+```text
+.
+|-- docs/                         # VitePress docs and shared SVG identity assets
+|-- samples/
+|   |-- input/                   # Lightweight sample frames and audio placeholders
+|   `-- workflows/               # App mode-ready smoke workflow JSON
+|-- scripts/
+|   |-- check_workflow_layout.py # Group, overlap, App mode, and runtime-contract checks
+|   `-- run_comfyui_api_smoke.py # Real /prompt API smoke runner for ComfyUI
+|-- tests/                       # Import, layout, and smoke-script regression coverage
+|-- nodes.py                     # Custom node implementations and registry
+`-- README.ja.md                 # Japanese top-level guide
+```
 
 ## License
 
