@@ -41,6 +41,20 @@ The current workflow expects:
 - one frame-image folder under the ComfyUI input root
 - `ffmpeg` available in the runtime
 
+## Samples
+
+- Sample workflow: `samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
+- Sample input placeholders: `samples/input/`
+- Layout checker: `scripts/check_workflow_layout.py`
+
+Validate grouped workflow layouts before publishing:
+
+```bash
+uv run python scripts/check_workflow_layout.py \
+  samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
+  --require-all-nodes-in-groups
+```
+
 ## Notes
 
 - Segment frame counts are quantized in blocks of 8 frames to stay friendly with LTX-style workflows.
