@@ -19,14 +19,23 @@ def test_sample_workflow_layout_passes():
         workflow_path,
         title_padding=80.0,
         inner_padding=12.0,
-        check_node_overlap=False,
         require_all_nodes_in_groups=True,
+        require_app_mode=True,
     )
 
     assert report["issues"] == []
     assert report["group_count"] == 3
     assert report["node_count"] == 17
     assert report["node_group_matches"]["Video Combine (Smoke Test)"] == ["Output"]
+    assert report["app_mode"]["enabled"] is True
+    assert report["app_mode"]["selected_inputs"] == [
+        [1, "directory"],
+        [2, "audio"],
+        [11, "audio"],
+        [4, "value"],
+        [5, "value"],
+    ]
+    assert report["app_mode"]["selected_outputs"] == [17]
 
 
 def test_layout_checker_reports_overlaps(tmp_path):
@@ -41,6 +50,13 @@ def test_layout_checker_reports_overlaps(tmp_path):
       "type": "LTXIntConstant",
       "title": "Header Collision",
       "pos": [30, 30],
+      "size": [120, 80]
+    },
+    {
+      "id": 2,
+      "type": "LTXIntConstant",
+      "title": "Node Collision",
+      "pos": [70, 60],
       "size": [120, 80]
     }
   ],
@@ -65,3 +81,67 @@ def test_layout_checker_reports_overlaps(tmp_path):
 
     assert any("group overlap" in issue for issue in report["issues"])
     assert any("group header overlap" in issue for issue in report["issues"])
+    assert any("node overlap" in issue for issue in report["issues"])
+
+
+def test_layout_checker_reports_invalid_app_mode(tmp_path):
+    module = _load_layout_module()
+    workflow_path = tmp_path / "broken_app_workflow.json"
+    workflow_path.write_text(
+        """
+{
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LTXIntConstant",
+      "title": "Segment Seconds",
+      "pos": [0, 100],
+      "size": [220, 86],
+      "inputs": [
+        {
+          "name": "value",
+          "type": "INT",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "LTXBatchAnything",
+      "title": "Not An Output Node",
+      "pos": [320, 100],
+      "size": [220, 86],
+      "inputs": []
+    }
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Group A",
+      "bounding": [-20, 0, 620, 260]
+    }
+  ],
+  "extra": {
+    "linearMode": true,
+    "linearData": {
+      "inputs": [[999, "value"], [1, "missing_widget"]],
+      "outputs": [2]
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = module.analyze_workflow(
+        workflow_path,
+        require_all_nodes_in_groups=True,
+        require_app_mode=True,
+    )
+
+    assert any("app mode missing input node" in issue for issue in report["issues"])
+    assert any("app mode missing widget" in issue for issue in report["issues"])
+    assert any("app mode invalid output node" in issue for issue in report["issues"])

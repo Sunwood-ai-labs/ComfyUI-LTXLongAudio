@@ -1,4 +1,3 @@
-Place one short test audio file here when you want to reproduce the sample workflow locally.
+Bundled demo assets live here for the smoke-test workflow.
 
-Suggested name:
-- tone.wav
+You can also drop local one-off audio files or frame folders here; the node dropdowns will pick them up.

@@ -47,13 +47,18 @@ The current workflow expects:
 - Sample input placeholders: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 
-Validate grouped workflow layouts before publishing:
+The bundled smoke workflow opens against lightweight repo-owned assets in `samples/input` by default, so you can validate node wiring even when your ComfyUI `input` directory contains unrelated files.
+
+Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, and App mode metadata are checked:
 
 ```bash
 uv run python scripts/check_workflow_layout.py \
   samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
-  --require-all-nodes-in-groups
+  --require-all-nodes-in-groups \
+  --require-app-mode
 ```
+
+The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior.
 
 ## Notes
 

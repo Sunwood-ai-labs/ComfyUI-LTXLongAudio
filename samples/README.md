@@ -4,13 +4,15 @@
 
 Expected runtime inputs:
 
-- Put one short audio file in your ComfyUI `input` directory.
-- Put at least two same-size images in `input/frames_pool`.
+- The bundled workflow now defaults to assets inside `samples/input`.
+- You can keep using the bundled sample files, or switch the controls to entries from your ComfyUI `input` directory.
 
-Suggested smoke-test asset names:
+Bundled smoke-test assets:
 
-- audio: `tone.wav`
-- image folder: `frames_pool`
+- audio: `samples/input/ltx-demo-tone.wav`
+- image folder: `samples/input/demo_frames`
+
+Local one-off files can still be dropped into `samples/input` or your ComfyUI `input` directory. The node dropdowns will list both locations.
 
 The workflow exercises:
 
@@ -28,10 +30,20 @@ The workflow exercises:
 - `LTXAudioConcatenate`
 - `LTXVideoCombine`
 
-Before publishing a workflow update, you can also lint the layout:
+Before publishing a workflow update, you can also lint the layout. The checker verifies group bounds, title-band collisions, node-node overlaps, and App mode metadata:
 
 ```bash
 uv run python scripts/check_workflow_layout.py \
   samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
-  --require-all-nodes-in-groups
+  --require-all-nodes-in-groups \
+  --require-app-mode
 ```
+
+The smoke workflow is App mode ready. Its exposed controls are:
+
+- `Frames Folder` -> `directory`
+- `Source Audio` -> `audio`
+- `Segment Audio` -> `audio`
+- `Segment Seconds` -> `value`
+- `Random Seed` -> `value`
+- output -> `Video Combine (Smoke Test)`

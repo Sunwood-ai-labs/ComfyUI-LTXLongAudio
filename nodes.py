@@ -172,6 +172,18 @@ def _input_directory() -> str:
     return os.path.join(os.getcwd(), "input")
 
 
+def _repository_root() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parent
+
+
+def _sample_input_directory() -> pathlib.Path:
+    return _repository_root() / "samples" / "input"
+
+
+def _repo_relative_path(path: pathlib.Path) -> str:
+    return path.relative_to(_repository_root()).as_posix()
+
+
 def _output_directory(save_output: bool) -> str:
     if folder_paths is not None:
         return folder_paths.get_output_directory() if save_output else folder_paths.get_temp_directory()
@@ -183,6 +195,12 @@ def _resolve_input_path(name_or_path: str) -> str:
         raise ValueError("A file or directory name is required.")
     if os.path.isabs(name_or_path):
         return name_or_path
+    repo_candidate = _repository_root() / name_or_path
+    if repo_candidate.exists():
+        return str(repo_candidate)
+    sample_candidate = _sample_input_directory() / name_or_path
+    if sample_candidate.exists():
+        return str(sample_candidate)
     if folder_paths is not None:
         try:
             return folder_paths.get_annotated_filepath(name_or_path)
@@ -192,27 +210,39 @@ def _resolve_input_path(name_or_path: str) -> str:
 
 
 def _list_input_audio_files() -> list[str]:
-    input_dir = _input_directory()
-    if not os.path.isdir(input_dir):
-        return []
-    files = []
-    for item in os.listdir(input_dir):
-        path = os.path.join(input_dir, item)
-        if os.path.isfile(path) and pathlib.Path(item).suffix.lower() in AUDIO_EXTENSIONS:
-            files.append(item)
-    return sorted(files)
+    files = set()
+
+    input_dir = pathlib.Path(_input_directory())
+    if input_dir.is_dir():
+        for item in input_dir.iterdir():
+            if item.is_file() and item.suffix.lower() in AUDIO_EXTENSIONS:
+                files.add(item.name)
+
+    sample_input_dir = _sample_input_directory()
+    if sample_input_dir.is_dir():
+        for item in sample_input_dir.iterdir():
+            if item.is_file() and item.suffix.lower() in AUDIO_EXTENSIONS:
+                files.add(_repo_relative_path(item))
+
+    return sorted(files, key=str.casefold)
 
 
 def _list_input_subdirectories() -> list[str]:
-    input_dir = _input_directory()
-    if not os.path.isdir(input_dir):
-        return []
-    directories = []
-    for item in os.listdir(input_dir):
-        path = os.path.join(input_dir, item)
-        if os.path.isdir(path) and item != "clipspace":
-            directories.append(item)
-    return sorted(directories)
+    directories = set()
+
+    input_dir = pathlib.Path(_input_directory())
+    if input_dir.is_dir():
+        for item in input_dir.iterdir():
+            if item.is_dir() and item.name != "clipspace":
+                directories.add(item.name)
+
+    sample_input_dir = _sample_input_directory()
+    if sample_input_dir.is_dir():
+        for item in sample_input_dir.iterdir():
+            if item.is_dir() and item.name != "clipspace":
+                directories.add(_repo_relative_path(item))
+
+    return sorted(directories, key=str.casefold)
 
 
 def _hash_path(path: str) -> str:

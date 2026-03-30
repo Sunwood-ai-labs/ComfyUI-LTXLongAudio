@@ -2,7 +2,7 @@
   "id": "b31f5f4a-cb6f-47cf-b0cf-ltxlongaudio-smoke",
   "revision": 0,
   "last_node_id": 17,
-  "last_link_id": 24,
+  "last_link_id": 25,
   "nodes": [
     {
       "id": 1,
@@ -74,7 +74,7 @@
         "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
       },
       "widgets_values": [
-        "frames_pool",
+        "samples/input/demo_frames",
         0,
         0,
         1
@@ -132,7 +132,7 @@
         "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
       },
       "widgets_values": [
-        "tone.wav",
+        "samples/input/ltx-demo-tone.wav",
         0,
         0
       ],
@@ -168,7 +168,8 @@
           "type": "INT",
           "links": [
             3,
-            5
+            5,
+            25
           ]
         }
       ],
@@ -593,7 +594,7 @@
         "ver": "7ac43cf0bb4f8563e5e209ea368884ff60680949"
       },
       "widgets_values": [
-        "tone.wav",
+        "samples/input/ltx-demo-tone.wav",
         0,
         2
       ],
@@ -627,7 +628,7 @@
         {
           "name": "direction",
           "type": "COMBO",
-          "link": null
+          "link": 25
         }
       ],
       "outputs": [
@@ -1155,6 +1156,14 @@
       17,
       4,
       "FLOAT"
+    ],
+    [
+      25,
+      3,
+      0,
+      15,
+      1,
+      "INT"
     ]
   ],
   "groups": [
@@ -1208,7 +1217,35 @@
       ]
     },
     "frontendVersion": "1.42.8",
-    "workflowRendererVersion": "LG"
+    "workflowRendererVersion": "LG",
+    "linearMode": true,
+    "linearData": {
+      "inputs": [
+        [
+          1,
+          "directory"
+        ],
+        [
+          2,
+          "audio"
+        ],
+        [
+          11,
+          "audio"
+        ],
+        [
+          4,
+          "value"
+        ],
+        [
+          5,
+          "value"
+        ]
+      ],
+      "outputs": [
+        17
+      ]
+    }
   },
   "version": 0.4
 }
