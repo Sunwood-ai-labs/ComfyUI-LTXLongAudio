@@ -1,0 +1,161 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --ltx-ink: #111827;
+  --ltx-surface: #ffffff;
+  --ltx-mist: #f5f3ee;
+  --ltx-outline: rgba(17, 24, 39, 0.12);
+  --ltx-wave-blue: #0b67d1;
+  --ltx-wave-teal: #00a9a8;
+  --ltx-wave-gold: #f7b500;
+
+  --vp-font-family-base: "Space Grotesk", "Segoe UI", sans-serif;
+  --vp-font-family-mono: "IBM Plex Mono", "Cascadia Code", monospace;
+  --vp-c-brand-1: var(--ltx-wave-blue);
+  --vp-c-brand-2: #0857b4;
+  --vp-c-brand-3: #044690;
+  --vp-c-brand-soft: rgba(11, 103, 209, 0.14);
+  --vp-c-bg: var(--ltx-mist);
+  --vp-c-bg-soft: #faf8f3;
+  --vp-c-bg-alt: #eef4fb;
+  --vp-c-bg-elv: var(--ltx-surface);
+  --vp-c-text-1: var(--ltx-ink);
+  --vp-c-text-2: rgba(17, 24, 39, 0.74);
+  --vp-c-divider: var(--ltx-outline);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #0b67d1 0%, #00a9a8 65%, #f7b500 100%);
+  --vp-home-hero-image-background-image:
+    radial-gradient(circle at 30% 35%, rgba(11, 103, 209, 0.22), transparent 42%),
+    radial-gradient(circle at 72% 24%, rgba(0, 169, 168, 0.24), transparent 42%),
+    radial-gradient(circle at 60% 72%, rgba(247, 181, 0, 0.2), transparent 45%);
+  --vp-home-hero-image-filter: drop-shadow(0 30px 60px rgba(4, 70, 144, 0.22));
+}
+
+.dark {
+  --ltx-ink: #f8fafc;
+  --ltx-surface: #111827;
+  --ltx-mist: #09111f;
+  --ltx-outline: rgba(226, 232, 240, 0.14);
+  --vp-c-bg: #09111f;
+  --vp-c-bg-soft: #0f172a;
+  --vp-c-bg-alt: #111f35;
+  --vp-c-bg-elv: #111827;
+  --vp-c-text-1: #f8fafc;
+  --vp-c-text-2: rgba(248, 250, 252, 0.72);
+  --vp-c-divider: var(--ltx-outline);
+  --vp-c-brand-1: #4b9cff;
+  --vp-c-brand-2: #79b7ff;
+  --vp-c-brand-3: #a7cfff;
+  --vp-home-hero-image-filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.42));
+}
+
+.VPNavBar {
+  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--vp-c-bg) 86%, white 14%);
+}
+
+.VPFeature,
+.VPDocOutlineItem,
+.custom-block,
+.vp-doc div[class*="language-"] {
+  border-color: var(--ltx-outline);
+}
+
+.VPFeature {
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.98)),
+    linear-gradient(135deg, rgba(11, 103, 209, 0.08), rgba(0, 169, 168, 0.06));
+  box-shadow: 0 22px 45px rgba(15, 23, 42, 0.08);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.dark .VPFeature {
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.98)),
+    linear-gradient(135deg, rgba(75, 156, 255, 0.1), rgba(0, 169, 168, 0.08));
+  box-shadow: 0 24px 52px rgba(0, 0, 0, 0.28);
+}
+
+.VPFeature:hover {
+  transform: translateY(-4px);
+  border-color: rgba(11, 103, 209, 0.28);
+  box-shadow: 0 28px 52px rgba(11, 103, 209, 0.14);
+}
+
+.VPButton,
+.vp-doc a,
+.VPNavBarMenuLink,
+.VPSidebarItem .link {
+  min-height: 44px;
+}
+
+.VPButton:focus-visible,
+.vp-doc a:focus-visible,
+.VPNavBarMenuLink:focus-visible,
+.VPSidebarItem .link:focus-visible {
+  outline: 3px solid rgba(247, 181, 0, 0.82);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+.VPFeature:focus-within {
+  border-color: rgba(247, 181, 0, 0.56);
+  box-shadow: 0 0 0 3px rgba(247, 181, 0, 0.18), 0 28px 52px rgba(11, 103, 209, 0.14);
+}
+
+.VPHero .image-container {
+  padding: 1rem;
+}
+
+.VPHero .image-bg {
+  opacity: 0.92;
+  filter: blur(74px);
+}
+
+.VPHero .main .text,
+.VPHero .main .tagline {
+  max-width: 40rem;
+}
+
+.vp-doc a {
+  text-underline-offset: 0.18em;
+}
+
+.vp-doc .custom-block.tip {
+  border-color: rgba(0, 169, 168, 0.32);
+}
+
+.vp-doc .custom-block.warning {
+  border-color: rgba(247, 181, 0, 0.5);
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+.vp-doc th {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .VPHero .name {
+    font-size: clamp(2.4rem, 9vw, 3.6rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .VPFeature:hover {
+    transform: none;
+  }
+}

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added a bilingual repository surface with English and Japanese top-level guides
+- Added VitePress docs, shared SVG identity assets, and GitHub Pages deployment workflow
+- Fixed the API smoke runner default workflow path and aligned local verification around `uv`
+
 ## 0.3.0 - 2026-03-30
 
 - Switched the public workflow surface to native `LTX*` node types instead of legacy compatibility names

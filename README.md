@@ -17,9 +17,9 @@
 
 <p align="center">
   <a href="README.md"><strong>English</strong></a>
-  ·
-  <a href="README.ja.md">日本語</a>
-  ·
+  |
+  <a href="README.ja.md">Japanese</a>
+  |
   <a href="https://sunwood-ai-labs.github.io/ComfyUI-LTXLongAudio/">Docs</a>
 </p>
 
@@ -71,13 +71,15 @@ The checked-in workflow is ready for the common folder-plus-audio smoke pass:
 The bundled workflow ships with concrete defaults:
 
 - Frame folder: `samples/input/frames_pool`
-- Audio input: `HOWL AT THE HAIRPIN2.wav`
+- Audio widget default: `HOWL AT THE HAIRPIN2.wav`
 
 The sample asset set stays intentionally lightweight so CPU-side smoke runs remain practical:
 
 - `samples/input/frames_pool` contains quarter-resolution `688x384` frames.
 - `samples/input/demo_frames` contains tiny `192x108` debug frames.
-- `samples/input/ltx-demo-tone.wav` remains available for minimal local testing.
+- `samples/input/ltx-demo-tone.wav` remains available as the tracked fallback audio.
+
+For scripted smoke runs, `run_comfyui_api_smoke.py` stages the fallback tone under the expected widget filename when the longer local sample is absent.
 
 More detail lives in [samples/README.md](samples/README.md) and the published guides:
 
