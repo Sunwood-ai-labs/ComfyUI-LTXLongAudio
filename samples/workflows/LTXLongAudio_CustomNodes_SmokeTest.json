@@ -74,7 +74,7 @@
         "ver": "working-tree"
       },
       "widgets_values": [
-        "",
+        "samples/input/frames_pool",
         0,
         0,
         1
@@ -116,7 +116,7 @@
         "Node name for S&R": "LoadAudio"
       },
       "widgets_values": [
-        ""
+        "HOWL AT THE HAIRPIN2.wav"
       ],
       "title": "Source Audio Upload"
     },

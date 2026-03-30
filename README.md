@@ -49,9 +49,11 @@ The bundled smoke workflow is folder-plus-audio:
 - Sample input placeholders: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 
-The bundled smoke workflow no longer hardcodes file paths. It opens with a blank frame-folder selector and a blank audio selector, and the API smoke script injects demo assets at runtime.
+The bundled smoke workflow uses concrete sample defaults: `samples/input/frames_pool` for the frame folder and `HOWL AT THE HAIRPIN2.wav` for the audio input.
 
 The sample uses ComfyUI's built-in `LoadAudio` node for the upload widget, plus `LTXAudioDuration` and `LTXAudioSlice` for long-audio helpers. This keeps the Desktop and App mode upload UI reliable while still testing the custom long-audio logic.
+
+The smoke script stages those sample assets into the ComfyUI input directory and validates the workflow as-is by default. Use `--auto-fill-missing` only if you intentionally want fallback behavior for blank widgets.
 
 If App mode still shows stale controls after updating this repository, fully restart the ComfyUI backend or Desktop app. A hot reload can keep old custom-node input schemas alive.
 

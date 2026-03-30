@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--execution-timeout", type=float, default=120.0)
     parser.add_argument("--port", type=int, default=0, help="Optional fixed port. Use 0 to auto-pick a free port.")
     parser.add_argument("--ffmpeg-exe", type=Path, default=None, help="Optional explicit ffmpeg.exe path.")
+    parser.add_argument(
+        "--auto-fill-missing",
+        action="store_true",
+        help="Fill blank workflow inputs with demo assets. By default the smoke test requires valid workflow defaults.",
+    )
     return parser.parse_args()
 
 
@@ -283,6 +288,30 @@ def choose_sample_frame_files() -> list[Path]:
     return frame_files
 
 
+def stage_default_input_assets(input_directory: Path) -> dict[str, Any]:
+    input_directory.mkdir(parents=True, exist_ok=True)
+
+    audio_source = choose_sample_audio_file()
+    staged_audio = input_directory / "HOWL AT THE HAIRPIN2.wav"
+    if not staged_audio.exists():
+        shutil.copy2(audio_source, staged_audio)
+
+    frames_dir = input_directory / "frames_pool"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    staged_frames = []
+    for frame_path in choose_sample_frame_files():
+        destination = frames_dir / frame_path.name
+        if not destination.exists():
+            shutil.copy2(frame_path, destination)
+        staged_frames.append(str(destination))
+
+    return {
+        "audio": str(staged_audio),
+        "frames_dir": str(frames_dir),
+        "frame_count": len(staged_frames),
+    }
+
+
 def upload_input_file(base_url: str, file_path: Path) -> str:
     response = multipart_request(f"{base_url}/upload/image", file_path=file_path, timeout=20.0)
     uploaded_name = response.get("name")
@@ -343,6 +372,22 @@ def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, An
     }
 
 
+def validate_workflow_defaults(workflow_prompt: dict[str, dict[str, Any]]) -> None:
+    missing = []
+    for node_id, node in sorted(workflow_prompt.items(), key=lambda item: int(item[0])):
+        class_type = node["class_type"]
+        inputs = node["inputs"]
+        title = node.get("_meta", {}).get("title", class_type)
+        if class_type == "LTXLoadImages" and not inputs.get("directory"):
+            missing.append(f"{title} ({node_id}) is missing default 'directory'")
+        if class_type in {"LTXLoadAudioUpload", "LoadAudio"} and not inputs.get("audio"):
+            missing.append(f"{title} ({node_id}) is missing default 'audio'")
+        if class_type == "LTXLoadImageUpload" and not inputs.get("image"):
+            missing.append(f"{title} ({node_id}) is missing default 'image'")
+    if missing:
+        raise RuntimeError("Workflow defaults are incomplete:\n- " + "\n- ".join(missing))
+
+
 def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
     audio_node_name = "LTXLoadAudioUpload" if any(
         node["class_type"] == "LTXLoadAudioUpload" for node in workflow_prompt.values()
@@ -394,6 +439,7 @@ def main() -> int:
     args = parse_args()
     node_registry = load_local_node_registry()
     prompt, _selected_widgets = workflow_to_prompt(args.workflow, node_registry=node_registry)
+    staged_assets = stage_default_input_assets(args.input_directory)
 
     port = int(args.port or pick_free_port())
     base_url = f"http://127.0.0.1:{port}"
@@ -440,7 +486,11 @@ def main() -> int:
         )
         try:
             wait_for_object_info(base_url, timeout=args.startup_timeout)
-            upload_info = apply_smoke_overrides(base_url, prompt)
+            if args.auto_fill_missing:
+                upload_info = apply_smoke_overrides(base_url, prompt)
+            else:
+                validate_workflow_defaults(prompt)
+                upload_info = {"selected_directory": None, "uploaded_audio": None, "uploaded_frames": []}
             combo_info = validate_expected_combo_options(base_url, prompt)
 
             response = json_request("POST", f"{base_url}/prompt", {"prompt": prompt}, timeout=20.0)
@@ -461,6 +511,8 @@ def main() -> int:
                 "output_nodes": sorted(history_entry.get("outputs", {}).keys()),
                 "combo_info": combo_info,
                 "upload_info": upload_info,
+                "staged_assets": staged_assets,
+                "used_workflow_defaults": not args.auto_fill_missing,
                 "ffmpeg_path": str(ffmpeg_path) if ffmpeg_path is not None else None,
                 "log_path": str(log_path),
             }

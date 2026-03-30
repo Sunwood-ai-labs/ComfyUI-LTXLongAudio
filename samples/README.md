@@ -4,15 +4,17 @@
 
 Expected runtime inputs:
 
-- The bundled workflow now opens with blank controls instead of hardcoded file paths.
-- Pick one frame folder from your ComfyUI `input` directory and upload one source audio file in App mode.
+- The bundled workflow now opens with concrete sample defaults.
+- Default frame folder: `samples/input/frames_pool`
+- Default audio file: `HOWL AT THE HAIRPIN2.wav`
+- You can still replace either value in App mode or the node graph.
 
 Bundled smoke-test assets:
 
 - audio: `samples/input/HOWL AT THE HAIRPIN2.wav`
 - image folder: `samples/input/frames_pool`
 
-Local one-off files can still be dropped into `samples/input` or your ComfyUI `input` directory. Folder and audio dropdowns list both locations, and blank is allowed until you decide what to use.
+Local one-off files can still be dropped into `samples/input` or your ComfyUI `input` directory. Folder and audio dropdowns list both locations.
 
 The workflow exercises:
 

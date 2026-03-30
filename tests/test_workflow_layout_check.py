@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -37,6 +38,19 @@ def test_sample_workflow_layout_passes():
         [5, "value"],
     ]
     assert report["app_mode"]["selected_outputs"] == [17]
+
+
+def test_sample_workflow_defaults_are_populated():
+    workflow_path = Path(__file__).resolve().parents[1] / "samples" / "workflows" / "LTXLongAudio_CustomNodes_SmokeTest.json"
+    data = json.loads(workflow_path.read_text(encoding="utf-8"))
+
+    frames_node = next(node for node in data["nodes"] if node["id"] == 1)
+    audio_node = next(node for node in data["nodes"] if node["id"] == 2)
+
+    assert frames_node["type"] == "LTXLoadImages"
+    assert frames_node["widgets_values"][0] == "samples/input/frames_pool"
+    assert audio_node["type"] == "LoadAudio"
+    assert audio_node["widgets_values"][0] == "HOWL AT THE HAIRPIN2.wav"
 
 
 def test_layout_checker_reports_overlaps(tmp_path):
