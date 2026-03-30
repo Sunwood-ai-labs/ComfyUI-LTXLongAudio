@@ -1178,10 +1178,25 @@ class CompatLTX2SamplingPreviewOverride:
 
 
 def _ffmpeg_executable() -> str:
+    for env_name in ("LTX_FFMPEG_EXE", "IMAGEIO_FFMPEG_EXE", "FFMPEG_EXE"):
+        env_value = os.environ.get(env_name)
+        if env_value and os.path.exists(env_value):
+            return env_value
+
     for candidate in ("ffmpeg", "ffmpeg.exe"):
         resolved = shutil.which(candidate)
         if resolved:
             return resolved
+
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        resolved = imageio_ffmpeg.get_ffmpeg_exe()
+        if resolved and os.path.exists(resolved):
+            return resolved
+    except Exception:
+        pass
+
     raise RuntimeError("ffmpeg is required for video export.")
 
 

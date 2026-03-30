@@ -56,6 +56,10 @@ uv run python scripts/check_workflow_layout.py \
   samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json \
   --require-all-nodes-in-groups \
   --require-app-mode
+
+# Run the exact smoke workflow through a real ComfyUI /prompt API session.
+uv run python scripts/run_comfyui_api_smoke.py \
+  --workflow D:/Prj/ComfyUI_LTX2_3_TI2V/LTXLongAudio_CustomNodes_SmokeTest.json
 ```
 
 The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior.

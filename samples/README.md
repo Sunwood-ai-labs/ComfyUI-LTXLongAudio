@@ -47,3 +47,10 @@ The smoke workflow is App mode ready. Its exposed controls are:
 - `Segment Seconds` -> `value`
 - `Random Seed` -> `value`
 - output -> `Video Combine (Smoke Test)`
+
+You can also validate the exact workflow end-to-end through ComfyUI's `/prompt` API:
+
+```bash
+uv run python scripts/run_comfyui_api_smoke.py \
+  --workflow D:/Prj/ComfyUI_LTX2_3_TI2V/LTXLongAudio_CustomNodes_SmokeTest.json
+```

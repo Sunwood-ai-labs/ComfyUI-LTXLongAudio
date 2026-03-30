@@ -72,3 +72,15 @@ def test_sample_inputs_are_listed_and_resolved(monkeypatch: pytest.MonkeyPatch, 
     assert module._resolve_input_path("root.wav") == str(comfy_input / "root.wav")
     assert module._resolve_input_path("samples/input/demo.wav") == str(sample_input / "demo.wav")
     assert module._resolve_input_path("samples/input/frames_pool") == str(sample_input / "frames_pool")
+
+
+def test_ffmpeg_executable_uses_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = _load_nodes_module()
+
+    ffmpeg_path = tmp_path / "ffmpeg-custom.exe"
+    ffmpeg_path.write_bytes(b"")
+
+    monkeypatch.setenv("LTX_FFMPEG_EXE", str(ffmpeg_path))
+    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+
+    assert module._ffmpeg_executable() == str(ffmpeg_path)
