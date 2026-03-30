@@ -5,6 +5,29 @@ description = "Native LTX custom nodes for long-audio workflows in ComfyUI"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
+keywords = ["comfyui", "ltx-video", "audio", "custom-nodes", "workflow"]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+]
+
+[project.urls]
+Homepage = "https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio"
+Documentation = "https://sunwood-ai-labs.github.io/ComfyUI-LTXLongAudio/"
+Repository = "https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio"
+Issues = "https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio/issues"
+Changelog = "https://github.com/Sunwood-ai-labs/ComfyUI-LTXLongAudio/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = ["pytest>=9,<10"]
+
+[tool.uv]
+default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
