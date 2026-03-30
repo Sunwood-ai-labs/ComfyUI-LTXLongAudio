@@ -47,8 +47,9 @@ The bundled smoke workflow is folder-plus-audio:
 
 - upload one song with the built-in `LoadAudio` control
 - choose one frame folder from the ComfyUI input list
-- split the song into looped 20-second chunks
-- turn one random frame per chunk into a dummy still-video segment
+- split the song into 20-second chunks by default
+- pick one deterministic random frame per chunk from the selected folder
+- turn each chunk into a dummy still-video segment
 - concatenate every chunk back into one previewable mp4
 - keep `ffmpeg` available in the runtime
 
@@ -58,13 +59,31 @@ The bundled smoke workflow is folder-plus-audio:
 - Sample input placeholders: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 
-The bundled smoke workflow uses concrete sample defaults: `samples/input/frames_pool` for the frame folder and `HOWL AT THE HAIRPIN2.wav` for the audio input.
+The bundled smoke workflow uses concrete sample defaults:
 
-The sample uses ComfyUI's built-in `LoadAudio` node for the upload widget, plus `LTXAudioDuration` and `LTXAudioSlice` for long-audio helpers. This keeps the Desktop and App mode upload UI reliable while still testing the custom long-audio logic.
+- frame folder: `samples/input/frames_pool`
+- audio input: `HOWL AT THE HAIRPIN2.wav`
+
+The current sample graph uses:
+
+- ComfyUI built-in `LoadAudio` for the upload widget
+- `LTXLoadImages` for folder selection
+- `LTXAudioDuration` and `LTXLongAudioSegmentInfo` for duration-aware chunk planning
+- `LTXBuildChunkedStillVideo` for the actual `20s chunk -> random frame -> still-video concat` behavior
+- `LTXVideoCombine` for the final MP4 output and ComfyUI preview payload
+
+The checked-in sample frame folders are intentionally lightweight:
+
+- `samples/input/frames_pool` ships quarter-resolution frames at `688x384`
+- `samples/input/demo_frames` ships tiny `192x108` debug frames
+
+This keeps CPU-side smoke runs practical while still validating the real long-audio path.
 
 The smoke script stages those sample assets into the ComfyUI input directory and validates the workflow as-is by default. Use `--auto-fill-missing` only if you intentionally want fallback behavior for blank widgets.
 
 If App mode still shows stale controls after updating this repository, fully restart the ComfyUI backend or Desktop app. A hot reload can keep old custom-node input schemas alive.
+
+If a preview looks unexpectedly short, stale backend state is the first thing to check. The sample workflow itself is designed to render the full source audio length, not only the first 20 seconds.
 
 Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues are checked:
 
@@ -76,10 +95,19 @@ uv run python scripts/check_workflow_layout.py \
 
 # Run the exact smoke workflow through a real ComfyUI /prompt API session.
 uv run python scripts/run_comfyui_api_smoke.py \
-  --workflow D:/Prj/ComfyUI_LTX2_3_TI2V/LTXLongAudio_CustomNodes_SmokeTest.json
+  --workflow D:/Prj/ComfyUI-LTXLongAudio/samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json
 ```
 
-The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior. Video preview appears on the final `LTXVideoCombine` output node, which returns ComfyUI's animated preview payload.
+The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior.
+
+The App mode surface is intentionally small:
+
+- `Frames Folder`
+- `Source Audio Upload`
+- `Segment Seconds`
+- `Random Seed`
+
+Video preview appears on the final `LTXVideoCombine` output node, which returns ComfyUI's animated preview payload.
 
 ## Notes
 
