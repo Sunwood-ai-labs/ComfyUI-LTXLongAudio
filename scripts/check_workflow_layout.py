@@ -58,6 +58,17 @@ def spec_primary_value(spec):
     return spec
 
 
+def spec_options(spec):
+    if isinstance(spec, tuple) and len(spec) > 1 and isinstance(spec[1], dict):
+        options = spec[1].get("options")
+        if isinstance(options, list):
+            return options
+    primary = spec_primary_value(spec)
+    if isinstance(primary, list):
+        return primary
+    return None
+
+
 def spec_uses_widget(spec):
     primary = spec_primary_value(spec)
     return isinstance(primary, list) or (isinstance(spec, tuple) and len(spec) > 1 and isinstance(spec[1], dict))
@@ -93,10 +104,10 @@ def analyze_node_contracts(data, raw_nodes, *, node_registry):
                 break
             widget_value = widget_values[widget_index]
             schema = schema_map[widget_name]["spec"]
-            primary = spec_primary_value(schema)
-            if isinstance(primary, list) and widget_value not in primary:
+            options = spec_options(schema)
+            if isinstance(options, list) and widget_value not in options:
                 issues.append(
-                    f"invalid combo value: '{node_title}' widget '{widget_name}' has {widget_value!r}, expected one of {primary!r}"
+                    f"invalid combo value: '{node_title}' widget '{widget_name}' has {widget_value!r}, expected one of {options!r}"
                 )
 
         for input_def in raw_node.get("inputs", []):
@@ -109,6 +120,7 @@ def analyze_node_contracts(data, raw_nodes, *, node_registry):
             schema = schema_info["spec"] if schema_info else None
             required = bool(schema_info and schema_info["required"])
             primary = spec_primary_value(schema) if schema is not None else None
+            options = spec_options(schema) if schema is not None else None
             widget_backed = spec_uses_widget(schema) if schema is not None else (input_type == "COMBO")
 
             if input_link is None:
@@ -122,7 +134,7 @@ def analyze_node_contracts(data, raw_nodes, *, node_registry):
                 continue
 
             linked_type = str(link[5])
-            if input_type == "COMBO" or isinstance(primary, list):
+            if input_type == "COMBO" or isinstance(options, list):
                 issues.append(
                     f"linked combo input: '{node_title}' input '{input_name}' should use a widget value, not link type {linked_type}"
                 )

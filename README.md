@@ -37,10 +37,10 @@ Then restart ComfyUI.
 
 This repository is designed for the common Colab flow where custom nodes are installed with `git clone` into `ComfyUI/custom_nodes`.
 
-The bundled smoke workflow is upload-first:
+The bundled smoke workflow is folder-plus-audio:
 
 - upload one song from App mode or the node graph
-- upload four same-size reference frames
+- choose one frame folder from the ComfyUI input list
 - keep `ffmpeg` available in the runtime
 
 ## Samples
@@ -49,7 +49,9 @@ The bundled smoke workflow is upload-first:
 - Sample input placeholders: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 
-The bundled smoke workflow no longer hardcodes file paths. It opens with blank upload fields and the API smoke script injects demo assets at runtime.
+The bundled smoke workflow no longer hardcodes file paths. It opens with a blank frame-folder selector and a blank audio selector, and the API smoke script injects demo assets at runtime.
+
+If App mode still shows stale controls after updating this repository, fully restart the ComfyUI backend or Desktop app. A hot reload can keep old custom-node input schemas alive.
 
 Validate grouped workflow layouts before publishing. Group overlaps, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues are checked:
 

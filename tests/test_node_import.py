@@ -113,14 +113,20 @@ def test_upload_inputs_include_blank_and_upload_metadata(monkeypatch: pytest.Mon
 
     audio_spec = module.NODE_CLASS_MAPPINGS["LTXLoadAudioUpload"].INPUT_TYPES()["required"]["audio"]
     image_spec = module.NODE_CLASS_MAPPINGS["LTXLoadImageUpload"].INPUT_TYPES()["required"]["image"]
+    directory_spec = module.NODE_CLASS_MAPPINGS["LTXLoadImages"].INPUT_TYPES()["required"]["directory"]
 
-    assert audio_spec[0][0] == ""
+    assert audio_spec[0] == "COMBO"
     assert audio_spec[1]["audio_upload"] is True
-    assert "root.wav" in audio_spec[0]
+    assert audio_spec[1]["options"][0] == ""
+    assert "root.wav" in audio_spec[1]["options"]
 
-    assert image_spec[0][0] == ""
+    assert image_spec[0] == "COMBO"
     assert image_spec[1]["image_upload"] is True
-    assert "root.png" in image_spec[0]
+    assert image_spec[1]["options"][0] == ""
+    assert "root.png" in image_spec[1]["options"]
+
+    assert directory_spec[0] == "COMBO"
+    assert directory_spec[1]["options"][0] == ""
 
 
 def test_ffmpeg_executable_uses_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

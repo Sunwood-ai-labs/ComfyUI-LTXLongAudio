@@ -275,6 +275,12 @@ def _combo_values_with_blank(values: list[str]) -> list[str]:
     return deduped
 
 
+def _combo_input(values: list[str], **extra: Any):
+    options = {"options": values}
+    options.update(extra)
+    return ("COMBO", options)
+
+
 def _hash_path(path: str) -> str:
     target = pathlib.Path(path)
     if not target.exists():
@@ -749,7 +755,7 @@ class CompatLoadImageUpload:
     @classmethod
     def INPUT_TYPES(cls):
         files = _combo_values_with_blank(_list_input_image_files())
-        return {"required": {"image": (files, {"image_upload": True})}}
+        return {"required": {"image": _combo_input(files, image_upload=True)}}
 
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("IMAGE", "MASK")
@@ -816,7 +822,7 @@ class CompatLoadAudioUpload:
     def INPUT_TYPES(cls):
         files = _combo_values_with_blank(_list_input_audio_files())
         return {
-            "required": {"audio": (files, {"audio_upload": True})},
+            "required": {"audio": _combo_input(files, audio_upload=True)},
             "optional": {
                 "start_time": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10_000_000.0, "step": 0.01}),
                 "duration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 10_000_000.0, "step": 0.01}),
@@ -903,9 +909,9 @@ class LTXAudioSlice:
 class CompatLoadImages:
     @classmethod
     def INPUT_TYPES(cls):
-        directories = _list_input_subdirectories() or [""]
+        directories = _combo_values_with_blank(_list_input_subdirectories())
         return {
-            "required": {"directory": (directories,)},
+            "required": {"directory": _combo_input(directories)},
             "optional": {
                 "image_load_cap": ("INT", {"default": 0, "min": 0, "max": 1_000_000, "step": 1}),
                 "skip_first_images": ("INT", {"default": 0, "min": 0, "max": 1_000_000, "step": 1}),
@@ -923,6 +929,8 @@ class CompatLoadImages:
         _require("numpy", np)
         _require("torch", torch)
         _require("Pillow", Image)
+        if not directory:
+            raise ValueError("Select a frame folder before running this node.")
         path = _resolve_input_path(directory)
         image_paths = []
         for item in sorted(os.listdir(path)):
@@ -951,7 +959,7 @@ class CompatLoadImages:
 
     @classmethod
     def IS_CHANGED(cls, directory, **kwargs):
-        return _hash_path(_resolve_input_path(directory))
+        return _hash_path(_resolve_input_path(directory)) if directory else "blank"
 
 
 class CompatAudioConcatenate:

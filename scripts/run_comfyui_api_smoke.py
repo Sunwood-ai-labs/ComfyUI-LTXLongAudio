@@ -108,6 +108,17 @@ def spec_primary_value(spec: Any) -> Any:
     return spec
 
 
+def spec_options(spec: Any) -> list[Any] | None:
+    if isinstance(spec, tuple) and len(spec) > 1 and isinstance(spec[1], dict):
+        options = spec[1].get("options")
+        if isinstance(options, list):
+            return options
+    primary = spec_primary_value(spec)
+    if isinstance(primary, list):
+        return primary
+    return None
+
+
 def spec_uses_widget(spec: Any) -> bool:
     primary = spec_primary_value(spec)
     return isinstance(primary, list) or (isinstance(spec, tuple) and len(spec) > 1 and isinstance(spec[1], dict))
@@ -273,9 +284,22 @@ def upload_input_file(base_url: str, file_path: Path) -> str:
     return f"{subfolder}/{uploaded_name}" if subfolder else uploaded_name
 
 
+def choose_sample_directory_value(base_url: str) -> str:
+    directory_info = json_request("GET", f"{base_url}/object_info/LTXLoadImages", timeout=5.0)["LTXLoadImages"]
+    directory_options = directory_info["input"]["required"]["directory"][1]["options"]
+    for preferred in ("frames_pool", "samples/input/frames_pool", "samples/input/demo_frames"):
+        if preferred in directory_options:
+            return preferred
+    for option in directory_options:
+        if option:
+            return option
+    raise RuntimeError(f"No usable frame-folder options available: {directory_options!r}")
+
+
 def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
     uploaded_audio_name: str | None = None
     uploaded_frame_names: list[str] = []
+    selected_directory: str | None = None
     image_node_ids = [
         node_id
         for node_id in sorted(workflow_prompt, key=int)
@@ -294,25 +318,38 @@ def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, An
         inputs = node["inputs"]
         class_type = node["class_type"]
 
+        if class_type == "LTXLoadImages" and not inputs.get("directory"):
+            if selected_directory is None:
+                selected_directory = choose_sample_directory_value(base_url)
+            inputs["directory"] = selected_directory
+
         if class_type == "LTXLoadAudioUpload" and not inputs.get("audio"):
             if uploaded_audio_name is None:
                 uploaded_audio_name = upload_input_file(base_url, choose_sample_audio_file())
             inputs["audio"] = uploaded_audio_name
 
-    return {"uploaded_audio": uploaded_audio_name, "uploaded_frames": uploaded_frame_names}
+    return {
+        "selected_directory": selected_directory,
+        "uploaded_audio": uploaded_audio_name,
+        "uploaded_frames": uploaded_frame_names,
+    }
 
 
 def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
     audio_info = json_request("GET", f"{base_url}/object_info/LTXLoadAudioUpload", timeout=5.0)["LTXLoadAudioUpload"]
     image_upload_info = json_request("GET", f"{base_url}/object_info/LTXLoadImageUpload", timeout=5.0)["LTXLoadImageUpload"]
 
-    audio_options = audio_info["input"]["required"]["audio"][0]
-    image_options = image_upload_info["input"]["required"]["image"][0]
+    audio_spec = audio_info["input"]["required"]["audio"]
+    image_spec = image_upload_info["input"]["required"]["image"]
+    audio_options = audio_spec[1]["options"]
+    image_options = image_spec[1]["options"]
     directory_options: list[str] = []
     directory_info = {}
+    directory_spec: list[Any] = ["COMBO", {"options": []}]
     try:
         directory_info = json_request("GET", f"{base_url}/object_info/LTXLoadImages", timeout=5.0).get("LTXLoadImages", {})
-        directory_options = directory_info.get("input", {}).get("required", {}).get("directory", [[]])[0]
+        directory_spec = directory_info.get("input", {}).get("required", {}).get("directory", directory_spec)
+        directory_options = directory_spec[1]["options"]
     except Exception:  # noqa: BLE001
         directory_info = {}
 
@@ -332,7 +369,14 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
             if isinstance(directory_value, str) and directory_value not in directory_options:
                 raise RuntimeError(f"Directory option {directory_value!r} not available: {directory_options!r}")
 
-    return {"audio_options": audio_options, "image_options": image_options, "directory_options": directory_options}
+    return {
+        "audio_options": audio_options,
+        "audio_upload_enabled": bool(audio_spec[1].get("audio_upload")),
+        "image_options": image_options,
+        "image_upload_enabled": bool(image_spec[1].get("image_upload")),
+        "directory_options": directory_options,
+        "directory_schema": directory_spec[0],
+    }
 
 
 def main() -> int:
