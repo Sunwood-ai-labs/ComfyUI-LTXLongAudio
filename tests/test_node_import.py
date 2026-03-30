@@ -21,10 +21,15 @@ def test_node_module_exports():
     assert "LTXLoadImageUpload" in module.NODE_CLASS_MAPPINGS
     assert "LTXBatchUploadedFrames" in module.NODE_CLASS_MAPPINGS
     assert "LTXRepeatImageBatch" in module.NODE_CLASS_MAPPINGS
+    assert "LTXAppendImageBatch" in module.NODE_CLASS_MAPPINGS
+    assert "LTXEnsureImageBatch" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopStart" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopEnd" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioSlice" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioDuration" in module.NODE_CLASS_MAPPINGS
+    assert "LTXBuildChunkedStillVideo" in module.NODE_CLASS_MAPPINGS
+    assert "LTXAppendAudio" in module.NODE_CLASS_MAPPINGS
+    assert "LTXEnsureAudio" in module.NODE_CLASS_MAPPINGS
     assert "LTXVideoCombine" in module.NODE_CLASS_MAPPINGS
     assert "LTXSimpleCalculator" in module.NODE_CLASS_MAPPINGS
     for legacy in ("easy forLoopStart", "VHS_VideoCombine", "SimpleCalculatorKJ"):
@@ -65,6 +70,16 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         assert repeated_images.shape == (3, 4, 4, 3)
         assert repeated_count == 3
 
+        append_images = module.NODE_CLASS_MAPPINGS["LTXAppendImageBatch"]()
+        merged_images, merged_count = append_images.append_images(image_b, previous_images=image_a)
+        assert merged_images.shape == (2, 4, 4, 3)
+        assert merged_count == 2
+
+        ensure_images = module.NODE_CLASS_MAPPINGS["LTXEnsureImageBatch"]()
+        ensured_images, ensured_count = ensure_images.ensure_images(merged_images)
+        assert ensured_images.shape == (2, 4, 4, 3)
+        assert ensured_count == 2
+
         audio_slice = module.NODE_CLASS_MAPPINGS["LTXAudioSlice"]()
         sample_rate = 8
         waveform = module.torch.arange(0, 32, dtype=module.torch.float32).reshape(1, 1, 32)
@@ -78,6 +93,32 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
         audio_duration = module.NODE_CLASS_MAPPINGS["LTXAudioDuration"]()
         assert audio_duration.get_duration({"waveform": waveform, "sample_rate": sample_rate}) == (4.0,)
+
+        chunk_builder = module.NODE_CLASS_MAPPINGS["LTXBuildChunkedStillVideo"]()
+        built_images, built_audio, built_fps, built_segment_count = chunk_builder.build(
+            batched_images,
+            {"waveform": waveform, "sample_rate": sample_rate},
+            segment_seconds=2,
+            seed=1234,
+            fps=2.0,
+        )
+        assert built_images.shape == (10, 4, 4, 3)
+        assert built_audio["waveform"].shape[-1] == 32
+        assert built_fps == 2.0
+        assert built_segment_count == 2
+
+        append_audio = module.NODE_CLASS_MAPPINGS["LTXAppendAudio"]()
+        merged_audio, merged_duration = append_audio.append_audio(
+            {"waveform": waveform[..., 16:], "sample_rate": sample_rate},
+            previous_audio={"waveform": waveform[..., :16], "sample_rate": sample_rate},
+        )
+        assert merged_audio["waveform"].shape[-1] == 32
+        assert merged_duration == 4.0
+
+        ensure_audio = module.NODE_CLASS_MAPPINGS["LTXEnsureAudio"]()
+        ensured_audio, ensured_audio_duration = ensure_audio.ensure_audio(merged_audio)
+        assert ensured_audio["waveform"].shape[-1] == 32
+        assert ensured_audio_duration == 4.0
 
         try:
             module._ffmpeg_executable()

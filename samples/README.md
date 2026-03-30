@@ -22,15 +22,8 @@ The workflow exercises:
 - `LTXAudioDuration`
 - `LTXLoadImages`
 - `LTXLongAudioSegmentInfo`
-- `LTXRandomImageIndex`
-- `LTXRepeatImageBatch`
-- `LTXAudioSlice`
+- `LTXBuildChunkedStillVideo`
 - `LTXIntConstant`
-- `LTXSimpleMath`
-- `LTXSimpleCalculator`
-- `LTXCompare`
-- `LTXIfElse`
-- `LTXIndexAnything`
 - `LTXVideoCombine`
 
 Before publishing a workflow update, you can also lint the layout. The checker verifies group bounds, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues such as missing required links or linked combo widgets:
@@ -48,9 +41,9 @@ The smoke workflow is App mode ready. Its exposed controls are:
 - `Frames Folder` -> `directory`
 - `Segment Seconds` -> `value`
 - `Random Seed` -> `value`
-- output -> `Video Combine (Smoke Test)`
+- output -> `Video Combine + Preview (20s Chunks)`
 
-The generated result is a dummy still-video: one selected frame is repeated for the computed segment frame count, muxed with audio, and previewed directly in ComfyUI.
+The generated result is a dummy long-audio still-video: the custom node splits the song into 20-second chunks, picks a deterministic random frame for each chunk from the selected folder, expands that frame into a chunk-sized still-video batch, concatenates all chunk audio and frame batches, and previews the final mp4 directly from the output node.
 
 If App mode still shows older controls after you update the custom node, fully restart the ComfyUI backend or Desktop app before reopening the workflow.
 

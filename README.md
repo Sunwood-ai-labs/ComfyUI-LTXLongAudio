@@ -14,6 +14,12 @@ This repository is intended for setups where custom nodes are published on GitHu
   Load an uploaded song, upload individual reference frames, batch uploaded frames, or load a reference-frame directory directly from the ComfyUI input folder.
 - `LTXAudioSlice`
   Cuts a segment from an already loaded audio clip, so workflows only need one audio upload control.
+- `LTXBuildChunkedStillVideo`
+  Splits a full song into chunk-sized still-video segments, chooses a deterministic random frame per chunk, and concatenates the result back into one image batch plus audio track.
+- `LTXAppendImageBatch` and `LTXAppendAudio`
+  Append per-segment still-video frames and sliced audio clips while the workflow loop walks across the full song.
+- `LTXEnsureImageBatch` and `LTXEnsureAudio`
+  Convert loop outputs back into explicit `IMAGE` and `AUDIO` types before the final mux node.
 - `LTXSimpleMath`, `LTXCompare`, `LTXIfElse`, `LTXIndexAnything`, `LTXBatchAnything`
   Workflow helpers used to drive segment loops and image selection.
 - `LTXWhileLoopStart`, `LTXWhileLoopEnd`, `LTXForLoopStart`, `LTXForLoopEnd`
@@ -41,8 +47,9 @@ The bundled smoke workflow is folder-plus-audio:
 
 - upload one song with the built-in `LoadAudio` control
 - choose one frame folder from the ComfyUI input list
-- turn the selected still image into a dummy still-video batch
-- preview the generated mp4 directly in ComfyUI
+- split the song into looped 20-second chunks
+- turn one random frame per chunk into a dummy still-video segment
+- concatenate every chunk back into one previewable mp4
 - keep `ffmpeg` available in the runtime
 
 ## Samples
@@ -72,7 +79,7 @@ uv run python scripts/run_comfyui_api_smoke.py \
   --workflow D:/Prj/ComfyUI_LTX2_3_TI2V/LTXLongAudio_CustomNodes_SmokeTest.json
 ```
 
-The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior.
+The bundled sample workflow includes App mode metadata via `extra.linearData` and `extra.linearMode`, matching the current ComfyUI frontend builder behavior. Video preview appears on the final `LTXVideoCombine` output node, which returns ComfyUI's animated preview payload.
 
 ## Notes
 

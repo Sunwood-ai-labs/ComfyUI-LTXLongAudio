@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -63,8 +64,12 @@ def json_request(method: str, url: str, payload: dict[str, Any] | None = None, t
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code} for {url}: {body}") from exc
 
 
 def multipart_request(url: str, *, file_path: Path, timeout: float = 20.0) -> Any:
@@ -293,16 +298,22 @@ def stage_default_input_assets(input_directory: Path) -> dict[str, Any]:
 
     audio_source = choose_sample_audio_file()
     staged_audio = input_directory / "HOWL AT THE HAIRPIN2.wav"
-    if not staged_audio.exists():
+    try:
         shutil.copy2(audio_source, staged_audio)
+    except PermissionError:
+        if not staged_audio.exists():
+            raise
 
     frames_dir = input_directory / "frames_pool"
     frames_dir.mkdir(parents=True, exist_ok=True)
     staged_frames = []
     for frame_path in choose_sample_frame_files():
         destination = frames_dir / frame_path.name
-        if not destination.exists():
+        try:
             shutil.copy2(frame_path, destination)
+        except PermissionError:
+            if not destination.exists():
+                raise
         staged_frames.append(str(destination))
 
     return {
@@ -435,6 +446,39 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
     }
 
 
+def summarize_video_previews(history_entry: dict[str, Any], workflow_prompt: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    outputs = history_entry.get("outputs", {})
+    preview_summaries: list[dict[str, Any]] = []
+
+    for node_id, node in sorted(workflow_prompt.items(), key=lambda item: int(item[0])):
+        if node["class_type"] != "LTXVideoCombine":
+            continue
+        output_entry = outputs.get(node_id, {}) if isinstance(outputs, dict) else {}
+        animated_value = output_entry.get("animated", False)
+        if isinstance(animated_value, (list, tuple)):
+            animated = bool(animated_value[0]) if animated_value else False
+        else:
+            animated = bool(animated_value)
+
+        summary = {
+            "node_id": node_id,
+            "title": node.get("_meta", {}).get("title", "LTXVideoCombine"),
+            "has_images": bool(output_entry.get("images")),
+            "animated": animated,
+            "text": output_entry.get("text", []),
+        }
+        preview_summaries.append(summary)
+
+    if not preview_summaries:
+        raise RuntimeError("Smoke workflow did not include any LTXVideoCombine output nodes.")
+
+    missing_preview = [item for item in preview_summaries if not item["has_images"] or not item["animated"]]
+    if missing_preview:
+        raise RuntimeError(f"Video preview metadata missing from output nodes: {missing_preview!r}")
+
+    return preview_summaries
+
+
 def main() -> int:
     args = parse_args()
     node_registry = load_local_node_registry()
@@ -501,6 +545,7 @@ def main() -> int:
             history_entry = wait_for_history(base_url, prompt_id, timeout=args.execution_timeout)
             status = history_entry.get("status", {})
             status_text = status.get("status_str") or status.get("status")
+            preview_summaries = summarize_video_previews(history_entry, prompt)
 
             result = {
                 "workflow": str(args.workflow),
@@ -509,6 +554,7 @@ def main() -> int:
                 "status": status_text,
                 "history_keys": sorted(history_entry.keys()),
                 "output_nodes": sorted(history_entry.get("outputs", {}).keys()),
+                "preview_summaries": preview_summaries,
                 "combo_info": combo_info,
                 "upload_info": upload_info,
                 "staged_assets": staged_assets,

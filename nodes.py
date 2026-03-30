@@ -848,6 +848,30 @@ class LTXRepeatImageBatch:
         return repeated.contiguous(), int(repeated.shape[0])
 
 
+class LTXAppendImageBatch:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {"current_images": ("IMAGE",)},
+            "optional": {"previous_images": (ANY_TYPE,)},
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT")
+    RETURN_NAMES = ("IMAGE", "frame_count")
+    FUNCTION = "append_images"
+    CATEGORY = "LTX/Workflow"
+
+    def append_images(self, current_images, previous_images=None):
+        _require("torch", torch)
+        if previous_images is None:
+            images = current_images
+        elif current_images is None:
+            images = previous_images
+        else:
+            images = torch.cat((previous_images, current_images), dim=0)
+        return images.contiguous(), int(images.shape[0])
+
+
 class CompatLoadAudioUpload:
     @classmethod
     def INPUT_TYPES(cls):
@@ -952,6 +976,145 @@ class LTXAudioDuration:
         sample_rate = max(int(audio["sample_rate"]), 1)
         duration = float(waveform.shape[-1] / sample_rate)
         return (duration,)
+
+
+class LTXBuildChunkedStillVideo:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "audio": ("AUDIO",),
+                "segment_seconds": ("INT", {"default": 20, "min": 1, "max": 3600, "step": 1}),
+                "seed": ("INT", {"default": 1234, "min": 0, "max": 2**31 - 1, "step": 1}),
+                "fps": ("FLOAT", {"default": 6.0, "min": 1.0, "max": 120.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT", "INT")
+    RETURN_NAMES = ("images", "audio", "frame_rate", "segment_count")
+    FUNCTION = "build"
+    CATEGORY = "LTX/LongAudio"
+
+    def build(self, images, audio, segment_seconds, seed, fps):
+        _require("torch", torch)
+        if images.dim() == 3:
+            images = images.unsqueeze(0)
+        if images.dim() != 4:
+            raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
+        image_count = int(images.shape[0])
+        if image_count < 1:
+            raise ValueError("At least one image is required.")
+
+        waveform = audio["waveform"]
+        sample_rate = max(int(audio["sample_rate"]), 1)
+        total_seconds = float(waveform.shape[-1] / sample_rate)
+        segment_seconds = max(int(segment_seconds), 1)
+        fps = max(float(fps), 1.0)
+        segment_count = int(math.ceil(total_seconds / segment_seconds)) if total_seconds > 0 else 0
+
+        if segment_count == 0:
+            return images[:1].contiguous(), {"waveform": waveform[..., :0].contiguous(), "sample_rate": sample_rate}, fps, 0
+
+        image_batches = []
+        audio_slices = []
+        for segment_index in range(segment_count):
+            start_time = float(segment_index * segment_seconds)
+            current_seconds = min(float(segment_seconds), max(total_seconds - start_time, 0.0))
+            if current_seconds <= 0:
+                continue
+
+            rng = random.Random(int(seed) + (segment_index * 9973))
+            image_index = rng.randrange(image_count)
+            selected_image = images[image_index:image_index + 1]
+
+            # For the smoke workflow, keep chunk timing close to the source audio.
+            frame_count = max(2, int(round(current_seconds * fps)) + 1)
+            image_batches.append(selected_image.repeat(frame_count, 1, 1, 1))
+
+            start_frame = max(0, int(round(start_time * sample_rate)))
+            audio_frames = max(1, int(round(current_seconds * sample_rate)))
+            end_frame = min(waveform.shape[-1], start_frame + audio_frames)
+            audio_slices.append(waveform[..., start_frame:end_frame].contiguous())
+
+        merged_images = torch.cat(image_batches, dim=0).contiguous()
+        merged_audio = {"waveform": torch.cat(audio_slices, dim=-1).contiguous(), "sample_rate": sample_rate}
+        return merged_images, merged_audio, fps, segment_count
+
+
+class LTXAppendAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {"current_audio": ("AUDIO",)},
+            "optional": {"previous_audio": (ANY_TYPE,)},
+        }
+
+    RETURN_TYPES = ("AUDIO", "FLOAT")
+    RETURN_NAMES = ("audio", "duration")
+    FUNCTION = "append_audio"
+    CATEGORY = "LTX/Workflow"
+
+    def append_audio(self, current_audio, previous_audio=None):
+        _require("torch", torch)
+        if previous_audio is None:
+            merged = current_audio
+        else:
+            if int(previous_audio["sample_rate"]) != int(current_audio["sample_rate"]):
+                raise ValueError("Audio sample rates must match before concatenation.")
+            merged = {
+                "waveform": torch.cat((previous_audio["waveform"], current_audio["waveform"]), dim=2),
+                "sample_rate": int(current_audio["sample_rate"]),
+            }
+        duration = float(merged["waveform"].shape[-1] / max(int(merged["sample_rate"]), 1))
+        return merged, duration
+
+
+class LTXEnsureImageBatch:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"images": (ANY_TYPE,)}}
+
+    RETURN_TYPES = ("IMAGE", "INT")
+    RETURN_NAMES = ("IMAGE", "frame_count")
+    FUNCTION = "ensure_images"
+    CATEGORY = "LTX/Workflow"
+
+    def ensure_images(self, images):
+        _require("torch", torch)
+        if isinstance(images, dict) and "samples" in images:
+            images = images["samples"]
+        if not isinstance(images, torch.Tensor):
+            raise TypeError("Expected IMAGE tensor data.")
+        if images.dim() == 3:
+            images = images.unsqueeze(0)
+        if images.dim() != 4:
+            raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
+        images = images.contiguous()
+        return images, int(images.shape[0])
+
+
+class LTXEnsureAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"audio": (ANY_TYPE,)}}
+
+    RETURN_TYPES = ("AUDIO", "FLOAT")
+    RETURN_NAMES = ("audio", "duration")
+    FUNCTION = "ensure_audio"
+    CATEGORY = "LTX/Workflow"
+
+    def ensure_audio(self, audio):
+        _require("torch", torch)
+        if not isinstance(audio, dict) or "waveform" not in audio or "sample_rate" not in audio:
+            raise TypeError("Expected AUDIO dictionary with waveform and sample_rate.")
+        waveform = audio["waveform"]
+        if not isinstance(waveform, torch.Tensor):
+            raise TypeError("Expected AUDIO waveform tensor data.")
+        waveform = waveform.contiguous()
+        sample_rate = max(int(audio["sample_rate"]), 1)
+        duration = float(waveform.shape[-1] / sample_rate)
+        return {"waveform": waveform, "sample_rate": sample_rate}, duration
 
 
 class CompatLoadImages:
@@ -1526,6 +1689,8 @@ NODE_CLASS_MAPPINGS = {
     "LTXLoadImageUpload": CompatLoadImageUpload,
     "LTXBatchUploadedFrames": LTXBatchUploadedFrames,
     "LTXRepeatImageBatch": LTXRepeatImageBatch,
+    "LTXAppendImageBatch": LTXAppendImageBatch,
+    "LTXEnsureImageBatch": LTXEnsureImageBatch,
     "LTXShowAnything": CompatShowAnything,
     "LTXSimpleMath": CompatSimpleMath,
     "LTXSeedList": CompatSeedList,
@@ -1540,6 +1705,9 @@ NODE_CLASS_MAPPINGS = {
     "LTXLoadAudioUpload": CompatLoadAudioUpload,
     "LTXAudioSlice": LTXAudioSlice,
     "LTXAudioDuration": LTXAudioDuration,
+    "LTXBuildChunkedStillVideo": LTXBuildChunkedStillVideo,
+    "LTXAppendAudio": LTXAppendAudio,
+    "LTXEnsureAudio": LTXEnsureAudio,
     "LTXLoadImages": CompatLoadImages,
     "LTXAudioConcatenate": CompatAudioConcatenate,
     "LTXIntConstant": CompatIntConstant,

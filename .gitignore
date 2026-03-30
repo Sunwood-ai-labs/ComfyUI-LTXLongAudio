@@ -7,8 +7,15 @@ samples/input/*
 !samples/input/README.txt
 !samples/input/ltx-demo-tone.wav
 !samples/input/demo_frames/
+!samples/input/frames_pool/
 samples/input/demo_frames/*
+samples/input/frames_pool/*
 !samples/input/demo_frames/README.txt
 !samples/input/demo_frames/demo_frame_01.png
 !samples/input/demo_frames/demo_frame_02.png
 !samples/input/demo_frames/demo_frame_03.png
+!samples/input/frames_pool/README.txt
+!samples/input/frames_pool/momoji (1).png
+!samples/input/frames_pool/momoji (2).png
+!samples/input/frames_pool/momoji (3).png
+!samples/input/frames_pool/momoji (4).png

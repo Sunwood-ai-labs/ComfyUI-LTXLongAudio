@@ -25,20 +25,21 @@ def test_sample_workflow_layout_passes():
     )
 
     assert report["issues"] == []
-    assert report["group_count"] == 3
-    assert report["node_count"] == 17
+    assert report["group_count"] == 4
+    assert report["node_count"] == 8
     assert report["node_group_matches"]["Frames Folder"] == ["Inputs"]
     assert report["node_group_matches"]["Source Audio Duration"] == ["Inputs"]
-    assert report["node_group_matches"]["Still Frame To Video Batch"] == ["Validation Logic"]
-    assert report["node_group_matches"]["Video Combine (Smoke Test)"] == ["Output"]
+    assert report["node_group_matches"]["Segment Count Preview"] == ["Chunk Planning"]
+    assert report["node_group_matches"]["Build 20s Chunked Still Video"] == ["Chunk Builder"]
+    assert report["node_group_matches"]["Video Combine + Preview (20s Chunks)"] == ["Output Preview"]
     assert report["app_mode"]["enabled"] is True
     assert report["app_mode"]["selected_inputs"] == [
         [1, "directory"],
         [2, "audio"],
+        [3, "value"],
         [4, "value"],
-        [5, "value"],
     ]
-    assert report["app_mode"]["selected_outputs"] == [17]
+    assert report["app_mode"]["selected_outputs"] == [6]
 
 
 def test_sample_workflow_defaults_are_populated():
