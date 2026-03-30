@@ -14,8 +14,10 @@ This repository is intended for setups where custom nodes are published on GitHu
   Load an uploaded song, upload individual reference frames, batch uploaded frames, or load a reference-frame directory directly from the ComfyUI input folder.
 - `LTXAudioSlice`
   Cuts a segment from an already loaded audio clip, so workflows only need one audio upload control.
+- `LTXDummyRenderSegment`
+  Turns one image plus one sliced audio chunk into a dummy still-video segment with a computed frame count.
 - `LTXBuildChunkedStillVideo`
-  Splits a full song into chunk-sized still-video segments, chooses a deterministic random frame per chunk, and concatenates the result back into one image batch plus audio track.
+  Splits a full song into chunk-sized segments, chooses a deterministic random frame per chunk, runs the dummy segment renderer for each chunk, and concatenates the result back into one image batch plus audio track.
 - `LTXAppendImageBatch` and `LTXAppendAudio`
   Append per-segment still-video frames and sliced audio clips while the workflow loop walks across the full song.
 - `LTXEnsureImageBatch` and `LTXEnsureAudio`
@@ -69,7 +71,7 @@ The current sample graph uses:
 - ComfyUI built-in `LoadAudio` for the upload widget
 - `LTXLoadImages` for folder selection
 - `LTXAudioDuration` and `LTXLongAudioSegmentInfo` for duration-aware chunk planning
-- `LTXBuildChunkedStillVideo` for the actual `20s chunk -> random frame -> still-video concat` behavior
+- `LTXBuildChunkedStillVideo` for the actual `20s chunk -> random frame -> dummy render -> concat` behavior
 - `LTXVideoCombine` for the final MP4 output and ComfyUI preview payload
 
 The checked-in sample frame folders are intentionally lightweight:

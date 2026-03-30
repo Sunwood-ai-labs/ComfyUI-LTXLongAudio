@@ -978,6 +978,44 @@ class LTXAudioDuration:
         return (duration,)
 
 
+def _render_dummy_segment(image, audio, fps):
+    _require("torch", torch)
+    if image.dim() == 3:
+        image = image.unsqueeze(0)
+    if image.dim() != 4:
+        raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
+    if image.shape[0] < 1:
+        raise ValueError("At least one frame is required.")
+
+    waveform = audio["waveform"]
+    sample_rate = max(int(audio["sample_rate"]), 1)
+    duration = float(waveform.shape[-1] / sample_rate)
+    fps = max(float(fps), 1.0)
+    frame_count = max(2, int(round(duration * fps)) + 1)
+    repeated = image[:1].repeat(frame_count, 1, 1, 1).contiguous()
+    return repeated, {"waveform": waveform.contiguous(), "sample_rate": sample_rate}, fps, frame_count, duration
+
+
+class LTXDummyRenderSegment:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "audio": ("AUDIO",),
+                "fps": ("FLOAT", {"default": 6.0, "min": 1.0, "max": 120.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT", "INT", "FLOAT")
+    RETURN_NAMES = ("images", "audio", "frame_rate", "frame_count", "duration")
+    FUNCTION = "render"
+    CATEGORY = "LTX/Workflow"
+
+    def render(self, image, audio, fps):
+        return _render_dummy_segment(image, audio, fps)
+
+
 class LTXBuildChunkedStillVideo:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1028,14 +1066,16 @@ class LTXBuildChunkedStillVideo:
             image_index = rng.randrange(image_count)
             selected_image = images[image_index:image_index + 1]
 
-            # For the smoke workflow, keep chunk timing close to the source audio.
-            frame_count = max(2, int(round(current_seconds * fps)) + 1)
-            image_batches.append(selected_image.repeat(frame_count, 1, 1, 1))
-
             start_frame = max(0, int(round(start_time * sample_rate)))
             audio_frames = max(1, int(round(current_seconds * sample_rate)))
             end_frame = min(waveform.shape[-1], start_frame + audio_frames)
-            audio_slices.append(waveform[..., start_frame:end_frame].contiguous())
+            segment_audio = {
+                "waveform": waveform[..., start_frame:end_frame].contiguous(),
+                "sample_rate": sample_rate,
+            }
+            segment_images, segment_audio, _frame_rate, _frame_count, _duration = _render_dummy_segment(selected_image, segment_audio, fps)
+            image_batches.append(segment_images)
+            audio_slices.append(segment_audio["waveform"])
 
         merged_images = torch.cat(image_batches, dim=0).contiguous()
         merged_audio = {"waveform": torch.cat(audio_slices, dim=-1).contiguous(), "sample_rate": sample_rate}
@@ -1705,6 +1745,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXLoadAudioUpload": CompatLoadAudioUpload,
     "LTXAudioSlice": LTXAudioSlice,
     "LTXAudioDuration": LTXAudioDuration,
+    "LTXDummyRenderSegment": LTXDummyRenderSegment,
     "LTXBuildChunkedStillVideo": LTXBuildChunkedStillVideo,
     "LTXAppendAudio": LTXAppendAudio,
     "LTXEnsureAudio": LTXEnsureAudio,

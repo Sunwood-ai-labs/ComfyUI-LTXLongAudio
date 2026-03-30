@@ -27,6 +27,7 @@ def test_node_module_exports():
     assert "LTXForLoopEnd" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioSlice" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioDuration" in module.NODE_CLASS_MAPPINGS
+    assert "LTXDummyRenderSegment" in module.NODE_CLASS_MAPPINGS
     assert "LTXBuildChunkedStillVideo" in module.NODE_CLASS_MAPPINGS
     assert "LTXAppendAudio" in module.NODE_CLASS_MAPPINGS
     assert "LTXEnsureAudio" in module.NODE_CLASS_MAPPINGS
@@ -93,6 +94,18 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
         audio_duration = module.NODE_CLASS_MAPPINGS["LTXAudioDuration"]()
         assert audio_duration.get_duration({"waveform": waveform, "sample_rate": sample_rate}) == (4.0,)
+
+        dummy_segment = module.NODE_CLASS_MAPPINGS["LTXDummyRenderSegment"]()
+        segment_images, segment_audio, segment_fps, segment_frame_count, segment_duration = dummy_segment.render(
+            image_a,
+            {"waveform": waveform[..., :16], "sample_rate": sample_rate},
+            fps=2.0,
+        )
+        assert segment_images.shape == (5, 4, 4, 3)
+        assert segment_audio["waveform"].shape[-1] == 16
+        assert segment_fps == 2.0
+        assert segment_frame_count == 5
+        assert segment_duration == 2.0
 
         chunk_builder = module.NODE_CLASS_MAPPINGS["LTXBuildChunkedStillVideo"]()
         built_images, built_audio, built_fps, built_segment_count = chunk_builder.build(

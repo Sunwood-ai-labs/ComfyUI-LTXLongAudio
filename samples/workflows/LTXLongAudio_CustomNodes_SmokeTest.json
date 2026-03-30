@@ -1,6 +1,6 @@
 {
   "id": "b31f5f4a-cb6f-47cf-b0cf-ltxlongaudio-smoke",
-  "revision": 5,
+  "revision": 6,
   "last_node_id": 8,
   "last_link_id": 11,
   "nodes": [
@@ -292,7 +292,7 @@
         1234,
         6.0
       ],
-      "title": "Build 20s Chunked Still Video"
+      "title": "Split + Randomize + Dummy Render + Concat (20s Chunks)"
     },
     {
       "id": 6,
