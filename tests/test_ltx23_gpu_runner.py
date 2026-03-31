@@ -9,7 +9,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from cli.ltx23_gpu_runner import Ltx23Assets, SegmentRenderRequest, build_segment_command, main
+from cli.ltx23_gpu_runner import (
+    LTX23RuntimeConfig,
+    LTX23WorkflowDefaults,
+    Ltx23Assets,
+    SegmentRenderRequest,
+    build_segment_command,
+    build_segment_commands,
+    main,
+)
 
 
 def _write_wave_file(path: Path, *, frame_rate: int, frame_count: int) -> None:
@@ -83,6 +91,58 @@ def test_build_segment_command_omits_image_for_text_to_video():
 
     assert "--audio-path" in command
     assert "--image" not in command
+
+
+def test_build_segment_commands_prefers_prepared_audio_chunks(tmp_path: Path):
+    conditioning_audio = tmp_path / "conditioning.wav"
+    prepared_audio = tmp_path / "conditioning_audio" / "segment_001.wav"
+    image_path = tmp_path / "frame.png"
+    conditioning_audio.write_bytes(b"wav")
+    prepared_audio.parent.mkdir(parents=True)
+    prepared_audio.write_bytes(b"wav")
+    image_path.write_bytes(b"png")
+
+    defaults = LTX23WorkflowDefaults(
+        workflow_path=tmp_path / "workflow.json",
+        source_audio=None,
+        frames_dir=None,
+    )
+    runtime = LTX23RuntimeConfig(output_dir=tmp_path, python_executable="python")
+    segments = [
+        type(
+            "Segment",
+            (),
+            {
+                "index": 0,
+                "start_time": 12.0,
+                "current_seconds": 0.5,
+                "exact_seconds": 0.0,
+                "frames": 1,
+                "selected_image_path": str(image_path),
+            },
+        )()
+    ]
+
+    commands = build_segment_commands(
+        defaults=defaults,
+        runtime=runtime,
+        source_audio=conditioning_audio,
+        conditioning_audio=conditioning_audio,
+        prompt="fox singer",
+        negative_prompt="bad",
+        width=256,
+        height=128,
+        fps=8.0,
+        use_text_to_video=False,
+        ltx_seed_base=420,
+        segments=segments,
+        prepared_audio_paths={0: prepared_audio},
+    )
+
+    assert len(commands) == 1
+    assert commands[0].audio_path == str(prepared_audio)
+    assert commands[0].audio_start_time == 0.0
+    assert commands[0].audio_max_duration == 0.125
 
 
 def test_main_writes_gpu_manifest_without_running(tmp_path: Path):

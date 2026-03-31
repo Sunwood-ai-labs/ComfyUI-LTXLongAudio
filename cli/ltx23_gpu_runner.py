@@ -369,6 +369,7 @@ def build_segment_commands(
     use_text_to_video: bool,
     ltx_seed_base: int,
     segments: Sequence[Any],
+    prepared_audio_paths: dict[int, Path] | None = None,
 ) -> list[SegmentCommand]:
     assets = Ltx23Assets(
         ltx_python=str(runtime.python_executable),
@@ -392,14 +393,15 @@ def build_segment_commands(
 
     commands: list[SegmentCommand] = []
     for segment in segments:
-        duration_seconds = float(segment.exact_seconds if segment.exact_seconds > 0 else segment.current_seconds)
+        duration_seconds = float(int(segment.frames) / max(float(fps), 1.0))
+        prepared_audio_path = prepared_audio_paths.get(int(segment.index)) if prepared_audio_paths else None
         output_path = output_root / f"segment_{int(segment.index) + 1:03d}.mp4"
         request = SegmentRenderRequest(
             segment_index=int(segment.index),
             prompt=prompt,
             image_path=None if use_text_to_video else str(Path(segment.selected_image_path).expanduser().resolve()),
-            audio_path=conditioning_path,
-            audio_start_time=float(segment.start_time),
+            audio_path=str(prepared_audio_path) if prepared_audio_path is not None else conditioning_path,
+            audio_start_time=0.0 if prepared_audio_path is not None else float(segment.start_time),
             audio_max_duration=duration_seconds,
             fps=float(fps),
             frame_count=int(segment.frames),
@@ -444,6 +446,67 @@ def _ffmpeg_executable() -> str:
 
 def _ffmpeg_reference() -> str:
     return shutil.which("ffmpeg") or "ffmpeg"
+
+
+def _segment_target_audio_duration(frame_count: int, fps: float) -> float:
+    return float(max(int(frame_count), 1)) / max(float(fps), 1.0)
+
+
+def _prepare_conditioning_audio_chunk(
+    source_audio: Path,
+    output_path: Path,
+    *,
+    start_time: float,
+    target_duration: float,
+    overwrite: bool,
+) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        _ffmpeg_executable(),
+        "-y" if overwrite else "-n",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(source_audio.expanduser().resolve()),
+        "-ss",
+        f"{float(start_time):.6f}",
+        "-t",
+        f"{float(target_duration):.6f}",
+        "-ac",
+        "2",
+        "-af",
+        f"apad=whole_dur={float(target_duration):.6f}",
+        "-c:a",
+        "pcm_s16le",
+        str(output_path.expanduser().resolve()),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path.expanduser().resolve()
+
+
+def _prepare_conditioning_audio_chunks(
+    source_audio: Path,
+    segments: Sequence[Any],
+    *,
+    fps: float,
+    output_dir: Path,
+    overwrite: bool,
+) -> dict[int, Path]:
+    prepared: dict[int, Path] = {}
+    chunk_dir = output_dir.expanduser().resolve() / "conditioning_audio"
+    for segment in segments:
+        segment_index = int(segment.index)
+        target_duration = _segment_target_audio_duration(int(segment.frames), fps)
+        chunk_path = chunk_dir / f"segment_{segment_index + 1:03d}.wav"
+        prepared[segment_index] = _prepare_conditioning_audio_chunk(
+            source_audio,
+            chunk_path,
+            start_time=float(segment.start_time),
+            target_duration=target_duration,
+            overwrite=overwrite,
+        )
+    return prepared
 
 
 def _write_concat_file(segment_paths: Sequence[Path], output_path: Path) -> Path:
@@ -708,6 +771,17 @@ def run(argv: list[str] | None = None) -> int:
             overwrite=runtime.overwrite,
             extra_ltx_args=runtime.extra_ltx_args,
         )
+    prepared_audio_paths = (
+        _prepare_conditioning_audio_chunks(
+            Path(conditioning_audio),
+            segments,
+            fps=fps,
+            output_dir=output_dir,
+            overwrite=runtime.overwrite,
+        )
+        if runtime.run_commands or runtime.emit_run_script
+        else None
+    )
     segment_commands = build_segment_commands(
         defaults=defaults,
         runtime=runtime,
@@ -721,6 +795,7 @@ def run(argv: list[str] | None = None) -> int:
         use_text_to_video=use_text_to_video,
         ltx_seed_base=ltx_seed_base,
         segments=segments,
+        prepared_audio_paths=prepared_audio_paths,
     )
 
     for command in segment_commands:
@@ -750,7 +825,7 @@ def run(argv: list[str] | None = None) -> int:
                 segment_index=command.segment_index,
                 prompt=prompt,
                 image_path=None if use_text_to_video else str(Path(segment.selected_image_path).expanduser().resolve()),
-                audio_path=str(Path(conditioning_audio).expanduser().resolve()),
+                audio_path=str(Path(command.audio_path).expanduser().resolve()),
                 audio_start_time=command.audio_start_time,
                 audio_max_duration=command.audio_max_duration,
                 fps=command.fps,

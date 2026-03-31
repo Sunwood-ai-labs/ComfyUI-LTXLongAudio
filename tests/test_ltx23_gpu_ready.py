@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import cli.ltx23_gpu_ready as gpu_ready
+import cli.ltx23_gpu_runner as gpu_runner
 
 
 def _write_wave_file(path: Path, *, frame_rate: int, frame_count: int) -> None:
@@ -106,6 +107,7 @@ def test_build_segment_commands_for_image_conditioned_a2vid(tmp_path: Path):
     assert "--enhance-prompt" in first
     assert first[first.index("--num-frames") + 1] == "241"
     assert first[first.index("--seed") + 1] == "420"
+    assert float(first[first.index("--audio-max-duration") + 1]) == pytest.approx(241 / 24.0)
 
 
 def test_text_to_video_mode_omits_image_conditioning(tmp_path: Path):
@@ -168,7 +170,66 @@ def test_text_to_video_mode_omits_image_conditioning(tmp_path: Path):
     assert "--image" not in commands[0].command
 
 
-def test_run_writes_manifest_and_script_without_running(tmp_path: Path):
+def test_prepared_conditioning_audio_rewrites_command_audio_path(tmp_path: Path):
+    for name in ("checkpoint.safetensors", "distilled.safetensors", "upscaler.safetensors"):
+        (tmp_path / name).write_bytes(b"model")
+    (tmp_path / "gemma").mkdir()
+    (tmp_path / "gemma" / "config.json").write_text("{}", encoding="utf-8")
+    defaults = gpu_ready.LTX23WorkflowDefaults(
+        workflow_path=tmp_path / "workflow.json",
+        source_audio="demo.wav",
+        frames_dir="frames",
+        segment_seconds=1,
+        fps=8.0,
+        image_selection_seed=1234,
+        inference_seed=420,
+        prompt="demo prompt",
+        negative_prompt="bad",
+        use_text_to_video=False,
+        use_only_vocals=False,
+        width=256,
+        height=128,
+    )
+    runtime = gpu_ready.LTX23RuntimeConfig(
+        pipeline_module="ltx_pipelines.a2vid_two_stage",
+        python_executable="python",
+        checkpoint_path=tmp_path / "checkpoint.safetensors",
+        distilled_lora_path=tmp_path / "distilled.safetensors",
+        spatial_upsampler_path=tmp_path / "upscaler.safetensors",
+        gemma_root=tmp_path / "gemma",
+        output_dir=tmp_path / "out",
+        overwrite=True,
+    )
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"img")
+    prepared_audio = tmp_path / "prepared" / "segment_001.wav"
+    prepared_audio.parent.mkdir()
+    prepared_audio.write_bytes(b"wav")
+    segments = gpu_ready.plan_segments(1.0, 1, 8.0, [image_path], 1234)
+
+    commands = gpu_ready.build_segment_commands(
+        defaults=defaults,
+        runtime=runtime,
+        source_audio=tmp_path / "source.wav",
+        conditioning_audio=tmp_path / "conditioning.wav",
+        prompt=defaults.prompt,
+        negative_prompt=defaults.negative_prompt,
+        width=defaults.width,
+        height=defaults.height,
+        fps=defaults.fps,
+        use_text_to_video=False,
+        ltx_seed_base=defaults.inference_seed,
+        segments=segments,
+        prepared_audio_paths={0: prepared_audio},
+    )
+
+    first = commands[0]
+    assert first.audio_path == str(prepared_audio)
+    assert first.audio_start_time == 0.0
+    assert float(first.command[first.command.index("--audio-max-duration") + 1]) == pytest.approx(9 / 8.0)
+
+
+def test_run_writes_manifest_and_script_without_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(
         json.dumps(
@@ -201,6 +262,26 @@ def test_run_writes_manifest_and_script_without_running(tmp_path: Path):
     (tmp_path / "gemma").mkdir()
     (tmp_path / "gemma" / "config.json").write_text("{}", encoding="utf-8")
 
+    real_subprocess_run = gpu_runner.subprocess.run
+
+    def fake_subprocess_run(command, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if command[0] == "ffmpeg":
+            output_path = Path(command[-1])
+            duration_seconds = float(command[command.index("-t") + 1])
+            frame_rate = 8
+            frame_count = max(int(round(duration_seconds * frame_rate)), 1)
+            silence_frame = b"\x00\x00\x00\x00"
+            with wave.open(str(output_path), "wb") as writer:
+                writer.setnchannels(2)
+                writer.setsampwidth(2)
+                writer.setframerate(frame_rate)
+                writer.writeframes(silence_frame * frame_count)
+            return None
+        return real_subprocess_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(gpu_runner, "_ffmpeg_executable", lambda: "ffmpeg")
+    monkeypatch.setattr(gpu_runner.subprocess, "run", fake_subprocess_run)
+
     exit_code = gpu_ready.run(
         [
             "--workflow",
@@ -226,13 +307,17 @@ def test_run_writes_manifest_and_script_without_running(tmp_path: Path):
 
     manifest_path = tmp_path / "out" / "ltx23_gpu_ready_manifest.json"
     script_path = tmp_path / "out" / "run_segments.sh"
+    conditioning_chunk = tmp_path / "out" / "conditioning_audio" / "segment_001.wav"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert exit_code == 0
     assert manifest_path.exists()
     assert script_path.exists()
+    assert conditioning_chunk.exists()
     assert payload["segment_commands"]
     assert payload["segment_commands"][0]["command"][2] == "ltx_pipelines.a2vid_two_stage"
+    with wave.open(str(conditioning_chunk), "rb") as reader:
+        assert reader.getnchannels() == 2
 
 
 def test_run_requires_real_gemma_snapshot_for_script_generation(tmp_path: Path):
