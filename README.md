@@ -69,9 +69,17 @@ The checked-in workflow is ready for the common folder-plus-audio smoke pass:
 4. Let `LTXBuildChunkedStillVideo` pick one deterministic frame per chunk.
 5. Preview the final MP4 from `LTXVideoCombine`.
 
+For the full LTX 2.3 app stack, this repository also ships the verified long-audio Origin workflow used in the GPU validation handover:
+
+1. Open `samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json`.
+2. Keep `Use Text to Video = OFF` if you want image-plus-prompt conditioning.
+3. Treat `Prompt Enhancer` as bypassed in the saved workflow state unless you intentionally re-enable it.
+4. Start with shorter `Segment Seconds` values if you want stronger identity/style anchoring inside each generated chunk.
+
 ## Sample Assets
 
 - Workflow: `samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
+- Workflow: `samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json`
 - Sample asset root: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 - API smoke runner: `scripts/run_comfyui_api_smoke.py`

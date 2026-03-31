@@ -65,6 +65,8 @@ MAX_FLOW_NUM = 10
 MAX_RESOLUTION = 16384
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+FRAME_STORE_MAGIC = "__ltx_frame_store__"
+FRAME_STORE_SPILL_THRESHOLD_BYTES = 512 * 1024 * 1024
 
 
 class AnyType(str):
@@ -79,6 +81,18 @@ def _require(name: str, value: Any) -> Any:
     if value is None:
         raise RuntimeError(f"{name} is required for this node.")
     return value
+
+
+def _available_node_classes() -> dict[str, Any]:
+    try:
+        import nodes as comfy_nodes  # type: ignore
+
+        mappings = getattr(comfy_nodes, "NODE_CLASS_MAPPINGS", None)
+        if isinstance(mappings, dict):
+            return mappings
+    except Exception:
+        pass
+    return NODE_CLASS_MAPPINGS
 
 
 def _safe_eval(expression: str, values: dict[str, Any]) -> Any:
@@ -863,6 +877,24 @@ class LTXAppendImageBatch:
 
     def append_images(self, current_images, previous_images=None):
         _require("torch", torch)
+        if _is_frame_store(previous_images):
+            images = _append_frame_store_segment(previous_images, current_images)
+            return images, _image_batch_frame_count(images)
+
+        if _is_frame_store(current_images):
+            images = current_images if previous_images is None else _append_frame_store_segment(current_images, previous_images)
+            return images, _image_batch_frame_count(images)
+
+        estimated_bytes = _image_batch_size_bytes(previous_images) + _image_batch_size_bytes(current_images)
+        if estimated_bytes >= FRAME_STORE_SPILL_THRESHOLD_BYTES:
+            segments = []
+            if previous_images is not None:
+                segments.append(_persist_image_batch(previous_images))
+            if current_images is not None:
+                segments.append(_persist_image_batch(current_images))
+            images = _make_frame_store(segments)
+            return images, _image_batch_frame_count(images)
+
         if previous_images is None:
             images = current_images
         elif current_images is None:
@@ -1745,6 +1777,89 @@ def _tensor_to_uint8_frame(image_tensor) -> "Image.Image":
     return Image.fromarray(frame)
 
 
+def _is_frame_store(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get(FRAME_STORE_MAGIC))
+
+
+def _image_batch_frame_count(images: Any) -> int:
+    if _is_frame_store(images):
+        return int(images.get("frame_count", 0))
+    if images is None:
+        return 0
+    if images.dim() == 3:
+        return 1
+    return int(images.shape[0])
+
+
+def _image_batch_size_bytes(images: Any) -> int:
+    if _is_frame_store(images) or images is None:
+        return 0
+    return int(images.numel() * images.element_size())
+
+
+def _frame_store_root() -> str:
+    base_dir = _output_directory(False)
+    pathlib.Path(base_dir).mkdir(parents=True, exist_ok=True)
+    return base_dir
+
+
+def _persist_image_batch(images) -> dict[str, Any]:
+    _require("torch", torch)
+    frame_count = _image_batch_frame_count(images)
+    if frame_count <= 0:
+        raise ValueError("Cannot persist an empty image batch.")
+    segment_dir = tempfile.mkdtemp(prefix="ltx-frame-store-", dir=_frame_store_root())
+    if images.dim() == 3:
+        images = images.unsqueeze(0)
+    for index, frame in enumerate(images):
+        _tensor_to_uint8_frame(frame).save(os.path.join(segment_dir, f"frame_{index:06d}.png"))
+    return {"dir": segment_dir, "frame_count": frame_count}
+
+
+def _make_frame_store(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        FRAME_STORE_MAGIC: True,
+        "segments": segments,
+        "frame_count": sum(int(segment.get("frame_count", 0)) for segment in segments),
+    }
+
+
+def _append_frame_store_segment(store: dict[str, Any], images) -> dict[str, Any]:
+    segments = list(store.get("segments", []))
+    if images is not None:
+        segments.append(_persist_image_batch(images))
+    return _make_frame_store(segments)
+
+
+def _cleanup_frame_store(store: Any):
+    if not _is_frame_store(store):
+        return
+    for segment in store.get("segments", []):
+        segment_dir = segment.get("dir")
+        if segment_dir:
+            shutil.rmtree(segment_dir, ignore_errors=True)
+
+
+def _materialize_frame_store(store: dict[str, Any], frames_dir: str, pingpong: bool = False) -> int:
+    segments = list(store.get("segments", []))
+    source_files: list[str] = []
+    for segment in segments:
+        segment_dir = segment.get("dir")
+        if not segment_dir:
+            continue
+        pattern = pathlib.Path(segment_dir).glob("frame_*.png")
+        source_files.extend(str(path) for path in sorted(pattern))
+    if pingpong and len(source_files) > 2:
+        source_files = source_files + source_files[-2:0:-1]
+    for index, source_path in enumerate(source_files):
+        destination = os.path.join(frames_dir, f"frame_{index:06d}.png")
+        try:
+            os.link(source_path, destination)
+        except OSError:
+            shutil.copy2(source_path, destination)
+    return len(source_files)
+
+
 def _next_output_path(filename_prefix: str, extension: str, save_output: bool) -> tuple[str, str, str]:
     output_dir = _output_directory(save_output)
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -1806,12 +1921,10 @@ class CompatVideoCombine:
         _require("torch", torch)
         if isinstance(images, dict) and "samples" in images:
             images = images["samples"]
-        if images is None or len(images) == 0:
+        if images is None or (_is_frame_store(images) and _image_batch_frame_count(images) == 0):
             return {"ui": {"text": ["No frames to encode."]}, "result": ((save_output, []),)}
-
-        frames = list(images)
-        if pingpong and len(frames) > 2:
-            frames = frames + frames[-2:0:-1]
+        if not _is_frame_store(images) and len(images) == 0:
+            return {"ui": {"text": ["No frames to encode."]}, "result": ((save_output, []),)}
 
         output_dir, file_name, media_type = _next_output_path(filename_prefix, "mp4", bool(save_output))
         output_path = os.path.join(output_dir, file_name)
@@ -1820,8 +1933,17 @@ class CompatVideoCombine:
         with tempfile.TemporaryDirectory(prefix="ltx-long-audio-") as temp_dir:
             frames_dir = os.path.join(temp_dir, "frames")
             os.makedirs(frames_dir, exist_ok=True)
-            for index, frame in enumerate(frames):
-                _tensor_to_uint8_frame(frame).save(os.path.join(frames_dir, f"frame_{index:06d}.png"))
+            if _is_frame_store(images):
+                frame_count = _materialize_frame_store(images, frames_dir, pingpong=pingpong)
+            else:
+                frames = list(images)
+                if pingpong and len(frames) > 2:
+                    frames = frames + frames[-2:0:-1]
+                for index, frame in enumerate(frames):
+                    _tensor_to_uint8_frame(frame).save(os.path.join(frames_dir, f"frame_{index:06d}.png"))
+                frame_count = len(frames)
+            if frame_count <= 0:
+                return {"ui": {"text": ["No frames to encode."]}, "result": ((save_output, []),)}
 
             command = [
                 ffmpeg,
@@ -1842,7 +1964,10 @@ class CompatVideoCombine:
                 if trim_to_audio:
                     command.append("-shortest")
             command.append(output_path)
-            subprocess.run(command, check=True, capture_output=True)
+            try:
+                subprocess.run(command, check=True, capture_output=True)
+            finally:
+                _cleanup_frame_store(images)
 
         payload = {"filename": file_name, "subfolder": "", "type": media_type, "format": format}
         return {"ui": {"images": [payload], "animated": (True,), "text": [output_path]}, "result": ((save_output, [payload]),)}

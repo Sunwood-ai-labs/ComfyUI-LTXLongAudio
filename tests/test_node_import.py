@@ -80,6 +80,13 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         assert merged_images.shape == (2, 4, 4, 3)
         assert merged_count == 2
 
+        monkeypatch.setattr(module, "FRAME_STORE_SPILL_THRESHOLD_BYTES", 1)
+        spilled_images, spilled_count = append_images.append_images(image_b, previous_images=image_a)
+        assert spilled_count == 2
+        assert spilled_images[module.FRAME_STORE_MAGIC] is True
+        assert len(spilled_images["segments"]) == 2
+        assert all(Path(segment["dir"]).exists() for segment in spilled_images["segments"])
+
         ensure_images = module.NODE_CLASS_MAPPINGS["LTXEnsureImageBatch"]()
         ensured_images, ensured_count = ensure_images.ensure_images(merged_images)
         assert ensured_images.shape == (2, 4, 4, 3)
@@ -165,12 +172,15 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         assert ensured_audio["waveform"].shape[-1] == 32
         assert ensured_audio_duration == 4.0
 
-        try:
-            module._ffmpeg_executable()
-        except Exception as exc:  # noqa: BLE001
-            pytest.skip(f"ffmpeg not available for video preview test: {exc}")
-
         monkeypatch.setattr(module, "_output_directory", lambda save_output: str(tmp_path))
+        monkeypatch.setattr(module, "_ffmpeg_executable", lambda: "ffmpeg")
+        ffmpeg_commands = []
+
+        def _fake_run(command, check, capture_output):
+            ffmpeg_commands.append(command)
+            return None
+
+        monkeypatch.setattr(module.subprocess, "run", _fake_run)
         video_combine = module.NODE_CLASS_MAPPINGS["LTXVideoCombine"]()
         preview_result = video_combine.combine_video(
             repeated_images,
@@ -182,6 +192,18 @@ def test_pure_node_behaviors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         assert "ui" in preview_result
         assert "images" in preview_result["ui"]
         assert preview_result["ui"]["animated"][0] is True
+        assert ffmpeg_commands
+
+        spilled_preview = video_combine.combine_video(
+            spilled_images,
+            frame_rate=2.0,
+            filename_prefix="ltx-preview-store-test",
+            save_output=False,
+            trim_to_audio=False,
+        )
+        assert "ui" in spilled_preview
+        assert spilled_preview["ui"]["animated"][0] is True
+        assert all(not Path(segment["dir"]).exists() for segment in spilled_images["segments"])
 
 
 def test_sample_inputs_are_listed_and_resolved(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
