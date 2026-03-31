@@ -27,6 +27,7 @@ Main entrypoints:
 - `origin_long_audio.py`: simple long-audio planning + optional WAV extraction
 - `ltx23_download_models.py`: download the official assets required by the GPU runner
 - `ltx23_gpu_ready.py`: emit or run official LTX-2.3 segment inference commands
+- `prepare_smoke_assets.py`: clip `HOWL AT THE HAIRPIN2.wav` and resize `momiji_studio` for lightweight smoke runs
 - `ltx_origin_long_audio.py`: experimental still-image MP4 prototype
 
 Run the simple planner with `uv`:
@@ -54,6 +55,19 @@ uv run python cli/ltx23_gpu_ready.py \
   --output-dir /workspace/ltx23-run \
   --conditioning-audio /path/to/optional-vocals.wav \
   --emit-run-script \
+  --overwrite
+```
+
+Prepare the repo's bundled smoke assets from the larger sample WAV + studio frames:
+
+```bash
+uv run python cli/prepare_smoke_assets.py \
+  --audio "samples/input/HOWL AT THE HAIRPIN2.wav" \
+  --frames-dir samples/input/momiji_studio \
+  --output-dir cli_output/smoke_assets/howl20_momiji \
+  --clip-seconds 20 \
+  --resize-width 384 \
+  --resize-height 216 \
   --overwrite
 ```
 

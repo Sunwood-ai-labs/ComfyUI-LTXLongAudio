@@ -6,6 +6,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+cli_output/
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
