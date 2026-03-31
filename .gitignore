@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 .venv/
+.env
+.env.*
+!.env.example
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/

@@ -1,0 +1,69 @@
+# CLI
+
+This folder contains a ComfyUI-free first pass of the long-audio loop from
+`samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json`.
+
+Current scope:
+
+- read workflow defaults from the Origin JSON
+- resolve source audio and frame-folder inputs
+- build frame-quantized long-audio segment plans
+- select one deterministic image per segment
+- optionally extract per-segment WAV files with `origin_long_audio.py`
+- prepare GPU-ready LTX-2.3 segment commands for the official `ltx_pipelines` runtime
+- emit a runnable `run_segments.sh` handoff script for GPU instances
+- optionally run per-segment inference and restore the original full-length audio in the final mux
+- write a manifest that records selected images, segment timings, and command previews
+
+Deliberately excluded from this first CLI milestone:
+
+- automatic vocals separation
+- checkpoint download or model installation
+- ComfyUI graph execution
+- ComfyUI loop-control nodes
+
+Main entrypoints:
+
+- `origin_long_audio.py`: simple long-audio planning + optional WAV extraction
+- `ltx23_download_models.py`: download the official assets required by the GPU runner
+- `ltx23_gpu_ready.py`: emit or run official LTX-2.3 segment inference commands
+- `ltx_origin_long_audio.py`: experimental still-image MP4 prototype
+
+Run the simple planner with `uv`:
+
+```bash
+uv run python cli/origin_long_audio.py \
+  --audio /path/to/song.mp3 \
+  --frames-dir /path/to/frames \
+  --overwrite
+```
+
+Prepare GPU-ready LTX-2.3 commands:
+
+```bash
+uv run python cli/ltx23_download_models.py \
+  --assets-root /workspace/models/ltx23_official
+
+uv run python cli/ltx23_gpu_ready.py \
+  --audio /path/to/song.mp3 \
+  --frames-dir /path/to/frames \
+  --checkpoint-path /workspace/models/ltx23_official/checkpoints/ltx-2.3-22b-dev.safetensors \
+  --distilled-lora-path /workspace/models/ltx23_official/loras/ltx-2.3-22b-distilled-lora-384.safetensors \
+  --spatial-upsampler-path /workspace/models/ltx23_official/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors \
+  --gemma-root /workspace/models/ltx23_official/gemma \
+  --output-dir /workspace/ltx23-run \
+  --conditioning-audio /path/to/optional-vocals.wav \
+  --emit-run-script \
+  --overwrite
+```
+
+Notes:
+
+- `ltx23_gpu_ready.py` normalizes width and height down to multiples of 64 for the official two-stage backend.
+- `--emit-run-script` and `--run` both require real model asset paths; prepare-only without those flags can still emit a preview manifest.
+- When `--conditioning-audio` is provided, segment commands condition on that file while the final mux still restores the original `--audio`.
+- `ltx23_download_models.py` follows the notebook reference only for asset selection. It downloads the official runner assets, not the ComfyUI-specific GGUF extras from the notebook stack.
+- The Gemma snapshot used by the official pipeline is gated on Hugging Face, so `HF_TOKEN` may be required for a full download.
+- `ltx23_download_models.py --skip-gemma` lets you fetch the public assets first and add Gemma later.
+
+If you want the still-video prototype only, use `ltx_origin_long_audio.py --plan-only`.

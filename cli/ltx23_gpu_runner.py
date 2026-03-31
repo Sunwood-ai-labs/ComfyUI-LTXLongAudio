@@ -1,0 +1,876 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import shutil
+import subprocess
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+from cli.long_audio_core import build_manifest as build_base_manifest
+from cli.long_audio_core import list_frame_images, plan_segments, probe_audio_info, write_manifest
+from cli.origin_long_audio import find_repo_root, resolve_input_path
+
+
+DEFAULT_WORKFLOW = Path("samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json")
+DEFAULT_MANIFEST_NAME = "ltx23_gpu_ready_manifest.json"
+DEFAULT_PIPELINE_MODULE = "ltx_pipelines.a2vid_two_stage"
+DEFAULT_OUTPUT_PREFIX = "LTX-2.3-longaudio-randomimg"
+DEFAULT_VIDEO_GUIDANCE_SCALE = 3.5
+DEFAULT_NEGATIVE_PROMPT = (
+    "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, "
+    "grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, "
+    "deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, "
+    "wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, "
+    "background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, "
+    "color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, "
+    "wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, "
+    "robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, "
+    "awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, "
+    "cinematic oversaturation, stylized filters, or AI artifacts."
+)
+
+WORKFLOW_NODE_IDS = {
+    "frames_dir": 167,
+    "fps": 285,
+    "segment_seconds": 291,
+    "source_audio": 372,
+    "image_selection_seed": 399,
+    "prompt": 352,
+    "text_to_video": 290,
+    "width": 292,
+    "height": 293,
+    "output": 140,
+    "negative_prompt": 110,
+    "inference_seed": 114,
+    "use_only_vocals": 382,
+}
+
+
+@dataclass(frozen=True)
+class LTX23WorkflowDefaults:
+    workflow_path: Path
+    source_audio: str | None
+    frames_dir: str | None
+    image_load_cap: int = 0
+    skip_first_images: int = 0
+    select_every_nth: int = 1
+    segment_seconds: int = 20
+    fps: float = 24.0
+    image_selection_seed: int = 1234
+    inference_seed: int = 420
+    prompt: str = ""
+    negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
+    use_text_to_video: bool = False
+    use_only_vocals: bool = False
+    width: int = 832
+    height: int = 480
+    output_prefix: str = DEFAULT_OUTPUT_PREFIX
+
+
+@dataclass(frozen=True)
+class LTX23RuntimeConfig:
+    pipeline_module: str = DEFAULT_PIPELINE_MODULE
+    python_executable: str = "python"
+    ltx_repo_root: Path | None = None
+    checkpoint_path: Path | None = None
+    distilled_lora_path: Path | None = None
+    distilled_lora_strength: float = 1.0
+    spatial_upsampler_path: Path | None = None
+    gemma_root: Path | None = None
+    output_dir: Path = Path(".")
+    num_inference_steps: int | None = None
+    image_strength: float = 1.0
+    image_crf: int = 33
+    quantization: str | tuple[str, ...] | None = None
+    enhance_prompt: bool = False
+    video_cfg_guidance_scale: float | None = DEFAULT_VIDEO_GUIDANCE_SCALE
+    run_commands: bool = False
+    emit_run_script: bool = False
+    overwrite: bool = False
+    extra_ltx_args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Ltx23Assets:
+    ltx_python: str
+    checkpoint_path: str
+    distilled_lora_path: str
+    distilled_lora_strength: float
+    spatial_upsampler_path: str
+    gemma_root: str
+    negative_prompt: str
+    pipeline_module: str = DEFAULT_PIPELINE_MODULE
+    num_inference_steps: int | None = None
+    quantization: tuple[str, ...] = ()
+    enhance_prompt: bool = False
+    video_cfg_guidance_scale: float | None = None
+    extra_args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SegmentRenderRequest:
+    segment_index: int
+    prompt: str
+    image_path: str | None
+    audio_path: str
+    audio_start_time: float = 0.0
+    audio_max_duration: float | None = None
+    fps: float = 24.0
+    frame_count: int = 1
+    width: int = 832
+    height: int = 512
+    seed: int = 0
+    output_path: str = ""
+    mode: str = "image_to_video"
+
+
+@dataclass(frozen=True)
+class SegmentCommand:
+    segment_index: int
+    command: list[str]
+    output_path: str
+    image_path: str | None
+    audio_path: str
+    audio_start_time: float
+    audio_max_duration: float | None
+    frame_count: int
+    fps: float
+    width: int
+    height: int
+    seed: int
+    mode: str
+
+
+def _normalize_dimension(value: int, divisor: int = 64) -> int:
+    safe_value = max(int(value), divisor)
+    return safe_value - (safe_value % divisor)
+
+
+def _default_output_dir(audio_path: Path) -> Path:
+    return audio_path.expanduser().resolve().with_name(f"{audio_path.stem}_ltx23_gpu")
+
+
+def _required_path(raw: str | Path | None, env_name: str) -> str:
+    candidate = raw if raw is not None else os.environ.get(env_name)
+    if not candidate:
+        raise ValueError(f"Missing required path. Provide the flag or set {env_name}.")
+    resolved = Path(candidate).expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Required path does not exist: {resolved}")
+    return str(resolved)
+
+
+def _required_gemma_root(raw: str | Path | None, env_name: str) -> str:
+    resolved = Path(_required_path(raw, env_name)).expanduser().resolve()
+    if not resolved.is_dir():
+        raise NotADirectoryError(f"Gemma root must be a directory: {resolved}")
+    required_markers = ("config.json", "tokenizer.json")
+    if not any((resolved / marker).exists() for marker in required_markers):
+        marker_list = ", ".join(required_markers)
+        raise FileNotFoundError(
+            f"Gemma root is missing the expected files ({marker_list}): {resolved}. "
+            "Download the gated Gemma snapshot with cli/ltx23_download_models.py or set HF_TOKEN first."
+        )
+    return str(resolved)
+
+
+def _optional_path(raw: str | Path | None) -> Path | None:
+    if raw is None:
+        return None
+    return Path(raw).expanduser().resolve()
+
+
+def _coerce_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _widget_value(node: dict[str, Any] | None, index: int, default: object) -> object:
+    if node is None:
+        return default
+    values = node.get("widgets_values") or []
+    if index >= len(values):
+        return default
+    value = values[index]
+    return default if value is None else value
+
+
+def _find_node(
+    nodes: Sequence[dict[str, Any]],
+    *,
+    node_id: int | None = None,
+    titles: Iterable[str] = (),
+    node_types: Iterable[str] = (),
+) -> dict[str, Any] | None:
+    if node_id is not None:
+        for node in nodes:
+            if int(node.get("id", -1)) == int(node_id):
+                return node
+    title_set = set(titles)
+    if title_set:
+        for node in nodes:
+            if node.get("title") in title_set:
+                return node
+    type_set = set(node_types)
+    if type_set:
+        for node in nodes:
+            if node.get("type") in type_set:
+                return node
+    return None
+
+
+def load_ltx23_workflow_defaults(workflow_path: Path = DEFAULT_WORKFLOW) -> LTX23WorkflowDefaults:
+    resolved = workflow_path.expanduser().resolve()
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    nodes = payload.get("nodes", [])
+
+    frames_node = _find_node(
+        nodes,
+        node_id=WORKFLOW_NODE_IDS["frames_dir"],
+        titles=("Segment Image Folder",),
+        node_types=("LTXLoadImages",),
+    )
+    fps_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["fps"], titles=("FPS",))
+    segment_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["segment_seconds"], titles=("SEGMENT SECONDS",))
+    source_audio_node = _find_node(
+        nodes,
+        node_id=WORKFLOW_NODE_IDS["source_audio"],
+        titles=("Source Song Upload",),
+        node_types=("LoadAudio", "LTXLoadAudioUpload"),
+    )
+    image_seed_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["image_selection_seed"], titles=("RANDOM IMAGE SEED",))
+    inference_seed_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["inference_seed"], node_types=("RandomNoise",))
+    prompt_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["prompt"], titles=("PROMPT",))
+    negative_prompt_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["negative_prompt"], node_types=("CLIPTextEncode",))
+    text_to_video_node = _find_node(
+        nodes,
+        node_id=WORKFLOW_NODE_IDS["text_to_video"],
+        titles=("Text To Video (no image ref)",),
+    )
+    use_only_vocals_node = _find_node(
+        nodes,
+        node_id=WORKFLOW_NODE_IDS["use_only_vocals"],
+        titles=("USE ONLY VOCALS",),
+    )
+    width_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["width"], titles=("WIDTH",))
+    height_node = _find_node(nodes, node_id=WORKFLOW_NODE_IDS["height"], titles=("HEIGHT",))
+    output_node = _find_node(
+        nodes,
+        node_id=WORKFLOW_NODE_IDS["output"],
+        titles=("Video Combine (20s Long Audio)",),
+        node_types=("LTXVideoCombine",),
+    )
+
+    return LTX23WorkflowDefaults(
+        workflow_path=resolved,
+        source_audio=_coerce_text(_widget_value(source_audio_node, 0, None)),
+        frames_dir=_coerce_text(_widget_value(frames_node, 0, None)),
+        image_load_cap=int(_widget_value(frames_node, 1, 0)),
+        skip_first_images=int(_widget_value(frames_node, 2, 0)),
+        select_every_nth=int(_widget_value(frames_node, 3, 1)),
+        segment_seconds=int(_widget_value(segment_node, 0, 20)),
+        fps=float(_widget_value(fps_node, 0, 24.0)),
+        image_selection_seed=int(_widget_value(image_seed_node, 0, 1234)),
+        inference_seed=int(_widget_value(inference_seed_node, 0, 420)),
+        prompt=str(_widget_value(prompt_node, 0, "") or ""),
+        negative_prompt=str(_widget_value(negative_prompt_node, 0, DEFAULT_NEGATIVE_PROMPT) or DEFAULT_NEGATIVE_PROMPT),
+        use_text_to_video=bool(_widget_value(text_to_video_node, 0, False)),
+        use_only_vocals=bool(_widget_value(use_only_vocals_node, 0, False)),
+        width=int(_widget_value(width_node, 0, 832)),
+        height=int(_widget_value(height_node, 0, 480)),
+        output_prefix=str(_widget_value(output_node, 2, DEFAULT_OUTPUT_PREFIX) or DEFAULT_OUTPUT_PREFIX),
+    )
+
+
+def _normalize_quantization(raw: str | Sequence[str] | None) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        text = raw.strip()
+        return (text,) if text else ()
+    values = tuple(str(item).strip() for item in raw if str(item).strip())
+    return values
+
+
+def build_segment_command(
+    request: SegmentRenderRequest,
+    assets: Ltx23Assets,
+    *,
+    image_strength: float,
+    image_crf: int,
+) -> list[str]:
+    command = [
+        assets.ltx_python,
+        "-m",
+        assets.pipeline_module,
+        "--checkpoint-path",
+        assets.checkpoint_path,
+        "--distilled-lora",
+        assets.distilled_lora_path,
+        str(assets.distilled_lora_strength),
+        "--spatial-upsampler-path",
+        assets.spatial_upsampler_path,
+        "--gemma-root",
+        assets.gemma_root,
+        "--prompt",
+        request.prompt,
+        "--negative-prompt",
+        assets.negative_prompt,
+        "--output-path",
+        request.output_path,
+        "--seed",
+        str(request.seed),
+        "--height",
+        str(request.height),
+        "--width",
+        str(request.width),
+        "--num-frames",
+        str(request.frame_count),
+        "--frame-rate",
+        str(request.fps),
+        "--audio-path",
+        request.audio_path,
+        "--audio-start-time",
+        f"{request.audio_start_time:.6f}",
+    ]
+    if request.audio_max_duration is not None:
+        command.extend(["--audio-max-duration", f"{request.audio_max_duration:.6f}"])
+    if assets.num_inference_steps is not None:
+        command.extend(["--num-inference-steps", str(assets.num_inference_steps)])
+    if request.mode == "image_to_video" and request.image_path:
+        command.extend(["--image", request.image_path, "0", str(image_strength), str(image_crf)])
+    if assets.quantization:
+        command.extend(["--quantization", *assets.quantization])
+    if assets.enhance_prompt:
+        command.append("--enhance-prompt")
+    if assets.video_cfg_guidance_scale is not None:
+        command.extend(["--video-cfg-guidance-scale", str(assets.video_cfg_guidance_scale)])
+    command.extend(list(assets.extra_args))
+    return command
+
+
+def build_segment_commands(
+    *,
+    defaults: LTX23WorkflowDefaults,
+    runtime: LTX23RuntimeConfig,
+    source_audio: Path,
+    conditioning_audio: Path | None,
+    prompt: str,
+    negative_prompt: str,
+    width: int,
+    height: int,
+    fps: float,
+    use_text_to_video: bool,
+    ltx_seed_base: int,
+    segments: Sequence[Any],
+) -> list[SegmentCommand]:
+    assets = Ltx23Assets(
+        ltx_python=str(runtime.python_executable),
+        checkpoint_path=str(runtime.checkpoint_path or "<checkpoint-path>"),
+        distilled_lora_path=str(runtime.distilled_lora_path or "<distilled-lora-path>"),
+        distilled_lora_strength=float(runtime.distilled_lora_strength),
+        spatial_upsampler_path=str(runtime.spatial_upsampler_path or "<spatial-upsampler-path>"),
+        gemma_root=str(runtime.gemma_root or "<gemma-root>"),
+        negative_prompt=negative_prompt,
+        pipeline_module=runtime.pipeline_module,
+        num_inference_steps=runtime.num_inference_steps,
+        quantization=_normalize_quantization(runtime.quantization),
+        enhance_prompt=runtime.enhance_prompt,
+        video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
+        extra_args=tuple(runtime.extra_ltx_args),
+    )
+    conditioning_path = str((conditioning_audio or source_audio).expanduser().resolve())
+    normalized_width = _normalize_dimension(width)
+    normalized_height = _normalize_dimension(height)
+    output_root = runtime.output_dir.expanduser().resolve() / "segment_videos"
+
+    commands: list[SegmentCommand] = []
+    for segment in segments:
+        duration_seconds = float(segment.exact_seconds if segment.exact_seconds > 0 else segment.current_seconds)
+        output_path = output_root / f"segment_{int(segment.index) + 1:03d}.mp4"
+        request = SegmentRenderRequest(
+            segment_index=int(segment.index),
+            prompt=prompt,
+            image_path=None if use_text_to_video else str(Path(segment.selected_image_path).expanduser().resolve()),
+            audio_path=conditioning_path,
+            audio_start_time=float(segment.start_time),
+            audio_max_duration=duration_seconds,
+            fps=float(fps),
+            frame_count=int(segment.frames),
+            width=normalized_width,
+            height=normalized_height,
+            seed=int(ltx_seed_base) + int(segment.index),
+            output_path=str(output_path),
+            mode="text_to_video" if use_text_to_video else "image_to_video",
+        )
+        command = build_segment_command(
+            request,
+            assets,
+            image_strength=runtime.image_strength,
+            image_crf=runtime.image_crf,
+        )
+        commands.append(
+            SegmentCommand(
+                segment_index=request.segment_index,
+                command=command,
+                output_path=request.output_path,
+                image_path=request.image_path,
+                audio_path=request.audio_path,
+                audio_start_time=request.audio_start_time,
+                audio_max_duration=request.audio_max_duration,
+                frame_count=request.frame_count,
+                fps=request.fps,
+                width=request.width,
+                height=request.height,
+                seed=request.seed,
+                mode=request.mode,
+            )
+        )
+    return commands
+
+
+def _ffmpeg_executable() -> str:
+    resolved = shutil.which("ffmpeg")
+    if resolved:
+        return resolved
+    raise RuntimeError("ffmpeg is required for final segment concatenation and muxing.")
+
+
+def _ffmpeg_reference() -> str:
+    return shutil.which("ffmpeg") or "ffmpeg"
+
+
+def _write_concat_file(segment_paths: Sequence[Path], output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"file '{path.as_posix()}'" for path in segment_paths]
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output_path
+
+
+def _concat_video_streams(segment_paths: Sequence[Path], output_path: Path, *, overwrite: bool) -> Path:
+    concat_path = _write_concat_file(segment_paths, output_path.parent / "segments_concat.txt")
+    command = [
+        _ffmpeg_executable(),
+        "-y" if overwrite else "-n",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_path),
+        "-map",
+        "0:v:0",
+        "-c:v",
+        "copy",
+        "-an",
+        str(output_path),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
+def _mux_original_audio(video_path: Path, audio_path: Path, output_path: Path, *, overwrite: bool) -> Path:
+    command = [
+        _ffmpeg_executable(),
+        "-y" if overwrite else "-n",
+        "-i",
+        str(video_path),
+        "-i",
+        str(audio_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-shortest",
+        str(output_path),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output_path
+
+
+def _shell_join(items: Sequence[str]) -> str:
+    return " ".join(shlex.quote(str(item)) for item in items)
+
+
+def _emit_run_script(
+    runtime: LTX23RuntimeConfig,
+    *,
+    source_audio: Path,
+    output_prefix: str,
+    segment_commands: Sequence[SegmentCommand],
+    include_final_concat: bool,
+) -> Path:
+    script_path = runtime.output_dir.expanduser().resolve() / "run_segments.sh"
+    segment_paths = [Path(command.output_path).resolve() for command in segment_commands]
+    concat_path = runtime.output_dir.expanduser().resolve() / "segments_concat.txt"
+    video_only_path = runtime.output_dir.expanduser().resolve() / f"{output_prefix}_video_only.mp4"
+    final_path = runtime.output_dir.expanduser().resolve() / f"{output_prefix}.mp4"
+
+    lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
+    if runtime.ltx_repo_root is not None:
+        lines.extend([f"cd {shlex.quote(str(runtime.ltx_repo_root.expanduser().resolve()))}", ""])
+    for command in segment_commands:
+        lines.append(_shell_join(command.command))
+    if include_final_concat and segment_paths:
+        lines.extend(
+            [
+                "",
+                "cat > " + shlex.quote(str(concat_path)) + " <<'EOF'",
+                *[f"file '{path.as_posix()}'" for path in segment_paths],
+                "EOF",
+                _shell_join(
+                    [
+                        _ffmpeg_reference(),
+                        "-y" if runtime.overwrite else "-n",
+                        "-f",
+                        "concat",
+                        "-safe",
+                        "0",
+                        "-i",
+                        str(concat_path),
+                        "-map",
+                        "0:v:0",
+                        "-c:v",
+                        "copy",
+                        "-an",
+                        str(video_only_path),
+                    ]
+                ),
+                _shell_join(
+                    [
+                        _ffmpeg_reference(),
+                        "-y" if runtime.overwrite else "-n",
+                        "-i",
+                        str(video_only_path),
+                        "-i",
+                        str(source_audio.expanduser().resolve()),
+                        "-map",
+                        "0:v:0",
+                        "-map",
+                        "1:a:0",
+                        "-c:v",
+                        "copy",
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        "192k",
+                        "-shortest",
+                        str(final_path),
+                    ]
+                ),
+            ]
+        )
+    script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return script_path
+
+
+def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23RuntimeConfig:
+    return LTX23RuntimeConfig(
+        pipeline_module=args.pipeline_module,
+        python_executable=args.ltx_python,
+        ltx_repo_root=_optional_path(args.ltx_repo_root),
+        checkpoint_path=_optional_path(args.checkpoint_path),
+        distilled_lora_path=_optional_path(args.distilled_lora_path),
+        distilled_lora_strength=float(args.distilled_lora_strength),
+        spatial_upsampler_path=_optional_path(args.spatial_upsampler_path),
+        gemma_root=_optional_path(args.gemma_root),
+        output_dir=output_dir,
+        num_inference_steps=args.num_inference_steps,
+        image_strength=float(args.image_strength),
+        image_crf=int(args.image_crf),
+        quantization=None if args.quantization is None else tuple(args.quantization),
+        enhance_prompt=bool(args.enhance_prompt),
+        video_cfg_guidance_scale=args.video_cfg_guidance_scale,
+        run_commands=bool(args.run),
+        emit_run_script=bool(args.emit_run_script),
+        overwrite=bool(args.overwrite),
+        extra_ltx_args=tuple(args.extra_ltx_arg),
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Prepare and optionally run official LTX-2.3 segment inference for the Origin workflow."
+    )
+    parser.add_argument("--workflow", type=Path, default=DEFAULT_WORKFLOW)
+    parser.add_argument("--audio", type=Path, default=None)
+    parser.add_argument("--conditioning-audio", type=Path, default=None)
+    parser.add_argument("--frames-dir", type=Path, default=None)
+    parser.add_argument("--segment-seconds", type=int, default=None)
+    parser.add_argument("--fps", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None, help="Override deterministic frame-selection seed.")
+    parser.add_argument("--ltx-seed", type=int, default=None, help="Override the LTX inference seed base.")
+    parser.add_argument("--prompt", default=None)
+    parser.add_argument("--negative-prompt", default=None)
+    parser.add_argument("--text-to-video", action="store_true")
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--height", type=int, default=None)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--manifest-name", default=DEFAULT_MANIFEST_NAME)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--emit-run-script", action="store_true")
+    parser.add_argument("--skip-final-concat", action="store_true")
+    parser.add_argument("--image-strength", type=float, default=1.0)
+    parser.add_argument("--image-crf", type=int, default=33)
+    parser.add_argument("--pipeline-module", default=DEFAULT_PIPELINE_MODULE)
+    parser.add_argument("--ltx-python", default=os.environ.get("LTX2_PYTHON", "python"))
+    parser.add_argument("--ltx-repo-root", default=os.environ.get("LTX2_REPO_ROOT"))
+    parser.add_argument("--checkpoint-path", default=os.environ.get("LTX2_CHECKPOINT_PATH"))
+    parser.add_argument("--distilled-lora-path", default=os.environ.get("LTX2_DISTILLED_LORA_PATH"))
+    parser.add_argument(
+        "--distilled-lora-strength",
+        type=float,
+        default=float(os.environ.get("LTX2_DISTILLED_LORA_STRENGTH", "1.0")),
+    )
+    parser.add_argument("--spatial-upsampler-path", default=os.environ.get("LTX2_SPATIAL_UPSAMPLER_PATH"))
+    parser.add_argument("--gemma-root", default=os.environ.get("LTX2_GEMMA_ROOT"))
+    parser.add_argument("--num-inference-steps", type=int, default=None)
+    parser.add_argument("--quantization", nargs="+", default=None)
+    parser.add_argument("--enhance-prompt", action="store_true")
+    parser.add_argument("--video-cfg-guidance-scale", type=float, default=DEFAULT_VIDEO_GUIDANCE_SCALE)
+    parser.add_argument("--extra-ltx-arg", action="append", default=[])
+    return parser.parse_args(argv)
+
+
+def run(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    defaults = load_ltx23_workflow_defaults(args.workflow)
+    repo_root = find_repo_root(defaults.workflow_path)
+
+    audio_value = args.audio if args.audio is not None else defaults.source_audio
+    frames_value = args.frames_dir if args.frames_dir is not None else defaults.frames_dir
+    conditioning_value = args.conditioning_audio if args.conditioning_audio is not None else None
+
+    audio_path = resolve_input_path(audio_value, label="audio", workflow_path=defaults.workflow_path, repo_root=repo_root)
+    frames_dir = resolve_input_path(frames_value, label="frames_dir", workflow_path=defaults.workflow_path, repo_root=repo_root)
+    conditioning_audio = (
+        resolve_input_path(conditioning_value, label="conditioning_audio", workflow_path=defaults.workflow_path, repo_root=repo_root)
+        if conditioning_value is not None
+        else audio_path
+    )
+
+    segment_seconds = max(int(args.segment_seconds if args.segment_seconds is not None else defaults.segment_seconds), 1)
+    fps = max(float(args.fps if args.fps is not None else defaults.fps), 1.0)
+    image_selection_seed = int(args.seed if args.seed is not None else defaults.image_selection_seed)
+    ltx_seed_base = int(args.ltx_seed if args.ltx_seed is not None else defaults.inference_seed)
+    prompt = str(args.prompt if args.prompt is not None else defaults.prompt)
+    negative_prompt = str(args.negative_prompt if args.negative_prompt is not None else defaults.negative_prompt)
+    use_text_to_video = bool(args.text_to_video or defaults.use_text_to_video)
+    requested_width = int(args.width if args.width is not None else defaults.width)
+    requested_height = int(args.height if args.height is not None else defaults.height)
+    width = _normalize_dimension(requested_width)
+    height = _normalize_dimension(requested_height)
+
+    audio_info = probe_audio_info(Path(audio_path))
+    image_paths = list_frame_images(
+        Path(frames_dir),
+        image_load_cap=defaults.image_load_cap,
+        skip_first_images=defaults.skip_first_images,
+        select_every_nth=defaults.select_every_nth,
+    )
+    segments = plan_segments(audio_info.duration_seconds, segment_seconds, fps, image_paths, image_selection_seed)
+
+    output_dir = args.output_dir.expanduser().resolve() if args.output_dir is not None else _default_output_dir(Path(audio_path))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    runtime = _build_runtime_config(args, output_dir)
+    if runtime.run_commands or runtime.emit_run_script:
+        runtime = LTX23RuntimeConfig(
+            pipeline_module=runtime.pipeline_module,
+            python_executable=runtime.python_executable,
+            ltx_repo_root=runtime.ltx_repo_root,
+            checkpoint_path=Path(_required_path(runtime.checkpoint_path, "LTX2_CHECKPOINT_PATH")),
+            distilled_lora_path=Path(_required_path(runtime.distilled_lora_path, "LTX2_DISTILLED_LORA_PATH")),
+            distilled_lora_strength=runtime.distilled_lora_strength,
+            spatial_upsampler_path=Path(_required_path(runtime.spatial_upsampler_path, "LTX2_SPATIAL_UPSAMPLER_PATH")),
+            gemma_root=Path(_required_gemma_root(runtime.gemma_root, "LTX2_GEMMA_ROOT")),
+            output_dir=runtime.output_dir,
+            num_inference_steps=runtime.num_inference_steps,
+            image_strength=runtime.image_strength,
+            image_crf=runtime.image_crf,
+            quantization=runtime.quantization,
+            enhance_prompt=runtime.enhance_prompt,
+            video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
+            run_commands=runtime.run_commands,
+            emit_run_script=runtime.emit_run_script,
+            overwrite=runtime.overwrite,
+            extra_ltx_args=runtime.extra_ltx_args,
+        )
+    segment_commands = build_segment_commands(
+        defaults=defaults,
+        runtime=runtime,
+        source_audio=Path(audio_path),
+        conditioning_audio=Path(conditioning_audio),
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        width=width,
+        height=height,
+        fps=fps,
+        use_text_to_video=use_text_to_video,
+        ltx_seed_base=ltx_seed_base,
+        segments=segments,
+    )
+
+    for command in segment_commands:
+        Path(command.output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    rendered_segments: list[Path] = []
+    video_only_path: Path | None = None
+    final_video_path: Path | None = None
+    if runtime.run_commands:
+        assets = Ltx23Assets(
+            ltx_python=runtime.python_executable,
+            checkpoint_path=_required_path(runtime.checkpoint_path, "LTX2_CHECKPOINT_PATH"),
+            distilled_lora_path=_required_path(runtime.distilled_lora_path, "LTX2_DISTILLED_LORA_PATH"),
+            distilled_lora_strength=float(runtime.distilled_lora_strength),
+            spatial_upsampler_path=_required_path(runtime.spatial_upsampler_path, "LTX2_SPATIAL_UPSAMPLER_PATH"),
+            gemma_root=_required_path(runtime.gemma_root, "LTX2_GEMMA_ROOT"),
+            negative_prompt=negative_prompt,
+            pipeline_module=runtime.pipeline_module,
+            num_inference_steps=runtime.num_inference_steps,
+            quantization=_normalize_quantization(runtime.quantization),
+            enhance_prompt=runtime.enhance_prompt,
+            video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
+            extra_args=tuple(runtime.extra_ltx_args),
+        )
+        for segment, command in zip(segments, segment_commands, strict=True):
+            request = SegmentRenderRequest(
+                segment_index=command.segment_index,
+                prompt=prompt,
+                image_path=None if use_text_to_video else str(Path(segment.selected_image_path).expanduser().resolve()),
+                audio_path=str(Path(conditioning_audio).expanduser().resolve()),
+                audio_start_time=command.audio_start_time,
+                audio_max_duration=command.audio_max_duration,
+                fps=command.fps,
+                frame_count=command.frame_count,
+                width=command.width,
+                height=command.height,
+                seed=command.seed,
+                output_path=command.output_path,
+                mode=command.mode,
+            )
+            subprocess.run(
+                build_segment_command(request, assets, image_strength=runtime.image_strength, image_crf=runtime.image_crf),
+                check=True,
+                cwd=str(runtime.ltx_repo_root) if runtime.ltx_repo_root is not None else None,
+            )
+            rendered_segments.append(Path(command.output_path).resolve())
+        if rendered_segments and not args.skip_final_concat:
+            video_only_path = _concat_video_streams(
+                rendered_segments,
+                output_dir / f"{defaults.output_prefix}_video_only.mp4",
+                overwrite=runtime.overwrite,
+            )
+            final_video_path = _mux_original_audio(
+                video_only_path,
+                Path(audio_path),
+                output_dir / f"{defaults.output_prefix}.mp4",
+                overwrite=runtime.overwrite,
+            )
+
+    run_script_path: Path | None = None
+    if runtime.emit_run_script:
+        run_script_path = _emit_run_script(
+            runtime,
+            source_audio=Path(audio_path),
+            output_prefix=defaults.output_prefix,
+            segment_commands=segment_commands,
+            include_final_concat=not args.skip_final_concat,
+        )
+
+    manifest = build_base_manifest(
+        workflow_path=defaults.workflow_path,
+        audio_info=audio_info,
+        frames_dir=Path(frames_dir),
+        fps=fps,
+        segment_seconds=segment_seconds,
+        seed=image_selection_seed,
+        image_load_cap=defaults.image_load_cap,
+        skip_first_images=defaults.skip_first_images,
+        select_every_nth=defaults.select_every_nth,
+        segments=list(segments),
+    )
+    manifest["source_audio"] = str(Path(audio_path).resolve())
+    manifest["conditioning_audio"] = str(Path(conditioning_audio).resolve())
+    manifest["prompt"] = prompt
+    manifest["negative_prompt"] = negative_prompt
+    manifest["use_text_to_video"] = use_text_to_video
+    manifest["text_to_video"] = use_text_to_video
+    manifest["use_only_vocals"] = defaults.use_only_vocals
+    manifest["requested_width"] = requested_width
+    manifest["requested_height"] = requested_height
+    manifest["width"] = width
+    manifest["height"] = height
+    manifest["ltx_seed_base"] = ltx_seed_base
+    manifest["pipeline_module"] = runtime.pipeline_module
+    manifest["ltx_repo_root"] = str(runtime.ltx_repo_root) if runtime.ltx_repo_root is not None else None
+    manifest["run_script"] = str(run_script_path) if run_script_path is not None else None
+    manifest["command_preview"] = [segment.command for segment in segment_commands]
+    manifest["segment_commands"] = [asdict(segment) for segment in segment_commands]
+    manifest["rendered_segments"] = [str(path) for path in rendered_segments]
+    manifest["video_only_output"] = str(video_only_path) if video_only_path is not None else None
+    manifest["final_video"] = str(final_video_path) if final_video_path is not None else None
+    manifest["notes"] = [
+        "Backend target: official LTX-2 a2vid two-stage pipeline via subprocess.",
+        "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
+        "Final mux always restores the original source audio after segment video concatenation.",
+        "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
+        "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
+    ]
+    manifest_path = write_manifest(manifest, output_dir / args.manifest_name)
+
+    print(f"Workflow defaults: {defaults.workflow_path}")
+    print(f"Audio: {audio_info.path}")
+    print(f"Conditioning audio: {Path(conditioning_audio).resolve()}")
+    print(f"Frames: {Path(frames_dir).resolve()}")
+    print(f"Segments planned: {len(segment_commands)}")
+    print(f"Manifest: {manifest_path}")
+    if run_script_path is not None:
+        print(f"Run script: {run_script_path}")
+    if final_video_path is not None:
+        print(f"Final video: {final_video_path}")
+    elif runtime.run_commands:
+        print("Final video: skipped")
+    else:
+        print("Render execution: skipped")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    return run(argv)
+
+
+__all__ = [
+    "DEFAULT_MANIFEST_NAME",
+    "DEFAULT_PIPELINE_MODULE",
+    "DEFAULT_WORKFLOW",
+    "DEFAULT_NEGATIVE_PROMPT",
+    "LTX23RuntimeConfig",
+    "LTX23WorkflowDefaults",
+    "Ltx23Assets",
+    "SegmentCommand",
+    "SegmentRenderRequest",
+    "build_segment_command",
+    "build_segment_commands",
+    "load_ltx23_workflow_defaults",
+    "main",
+    "parse_args",
+    "plan_segments",
+    "run",
+]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
