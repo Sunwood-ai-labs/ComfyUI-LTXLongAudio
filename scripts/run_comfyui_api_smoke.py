@@ -284,6 +284,12 @@ def input_schema_map(node_class: Any) -> tuple[dict[str, dict[str, Any]], list[s
     return schema_map, widget_order
 
 
+def prompt_widget_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return {"__value__": value}
+    return value
+
+
 def workflow_to_prompt(workflow_path: Path, *, node_registry: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, list[Any]]]:
     workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
     links = {int(link[0]): link for link in workflow.get("links", []) if isinstance(link, list) and len(link) >= 6}
@@ -317,7 +323,7 @@ def workflow_to_prompt(workflow_path: Path, *, node_registry: dict[str, Any]) ->
                 link = links[int(input_def["link"])]
                 node_inputs[widget_name] = [str(link[1]), int(link[2])]
             elif widget_name in widget_value_map:
-                node_inputs[widget_name] = widget_value_map[widget_name]
+                node_inputs[widget_name] = prompt_widget_value(widget_value_map[widget_name])
                 selected_widgets.setdefault(widget_name, []).append(widget_value_map[widget_name])
 
         for input_name, input_def in input_defs.items():
@@ -477,6 +483,23 @@ def choose_sample_directory_value(base_url: str) -> str:
     raise RuntimeError(f"No usable frame-folder options available: {directory_options!r}")
 
 
+def unwrap_prompt_value(value: Any) -> Any:
+    if isinstance(value, dict) and "__value__" in value:
+        return value["__value__"]
+    return value
+
+
+def prompt_value_list(value: Any) -> list[str]:
+    raw_value = unwrap_prompt_value(value)
+    if isinstance(raw_value, (list, tuple)):
+        return [str(item) for item in raw_value if item]
+    if isinstance(raw_value, str):
+        return [raw_value] if raw_value else []
+    if raw_value is None:
+        return []
+    return [str(raw_value)]
+
+
 def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, Any]]) -> dict[str, Any]:
     uploaded_audio_name: str | None = None
     uploaded_frame_names: list[str] = []
@@ -486,13 +509,22 @@ def apply_smoke_overrides(base_url: str, workflow_prompt: dict[str, dict[str, An
         for node_id in sorted(workflow_prompt, key=int)
         if workflow_prompt[node_id]["class_type"] == "LTXLoadImageUpload"
     ]
+    batch_image_node_ids = [
+        node_id
+        for node_id in sorted(workflow_prompt, key=int)
+        if workflow_prompt[node_id]["class_type"] == "LTXLoadImageBatchUpload"
+    ]
 
-    if image_node_ids:
+    if image_node_ids or batch_image_node_ids:
         uploaded_frame_names = [upload_input_file(base_url, path) for path in choose_sample_frame_files()]
         for index, node_id in enumerate(image_node_ids):
             inputs = workflow_prompt[node_id]["inputs"]
             if not inputs.get("image"):
                 inputs["image"] = uploaded_frame_names[index % len(uploaded_frame_names)]
+        for node_id in batch_image_node_ids:
+            inputs = workflow_prompt[node_id]["inputs"]
+            if not prompt_value_list(inputs.get("image")):
+                inputs["image"] = {"__value__": uploaded_frame_names}
 
     for node_id in sorted(workflow_prompt, key=int):
         node = workflow_prompt[node_id]
@@ -528,6 +560,8 @@ def validate_workflow_defaults(workflow_prompt: dict[str, dict[str, Any]]) -> No
             missing.append(f"{title} ({node_id}) is missing default 'audio'")
         if class_type == "LTXLoadImageUpload" and not inputs.get("image"):
             missing.append(f"{title} ({node_id}) is missing default 'image'")
+        if class_type == "LTXLoadImageBatchUpload" and not prompt_value_list(inputs.get("image")):
+            missing.append(f"{title} ({node_id}) is missing default 'image'")
     if missing:
         raise RuntimeError("Workflow defaults are incomplete:\n- " + "\n- ".join(missing))
 
@@ -538,6 +572,21 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
     ) else "LoadAudio"
     audio_info = json_request("GET", f"{base_url}/object_info/{audio_node_name}", timeout=5.0)[audio_node_name]
     image_upload_info = json_request("GET", f"{base_url}/object_info/LTXLoadImageUpload", timeout=5.0)["LTXLoadImageUpload"]
+    batch_upload_used = any(node["class_type"] == "LTXLoadImageBatchUpload" for node in workflow_prompt.values())
+    batch_upload_info = {}
+    batch_upload_options: list[str] = []
+    batch_upload_enabled = False
+    batch_allow_batch = False
+    if batch_upload_used:
+        batch_upload_info = json_request("GET", f"{base_url}/object_info/LTXLoadImageBatchUpload", timeout=5.0).get(
+            "LTXLoadImageBatchUpload", {}
+        )
+        if not batch_upload_info:
+            raise RuntimeError("LTXLoadImageBatchUpload is not exposed in /object_info.")
+        batch_upload_spec = batch_upload_info["input"]["required"]["image"]
+        batch_upload_options = batch_upload_spec[1]["options"]
+        batch_upload_enabled = bool(batch_upload_spec[1].get("image_upload"))
+        batch_allow_batch = bool(batch_upload_spec[1].get("allow_batch"))
 
     audio_spec = audio_info["input"]["required"]["audio"]
     image_spec = image_upload_info["input"]["required"]["image"]
@@ -564,6 +613,10 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
             image_value = inputs.get("image")
             if isinstance(image_value, str) and image_value not in image_options:
                 raise RuntimeError(f"Image option {image_value!r} not available: {image_options!r}")
+        if class_type == "LTXLoadImageBatchUpload":
+            for image_value in prompt_value_list(inputs.get("image")):
+                if image_value not in batch_upload_options:
+                    raise RuntimeError(f"Batch image option {image_value!r} not available: {batch_upload_options!r}")
         if class_type == "LTXLoadImages":
             directory_value = inputs.get("directory")
             if isinstance(directory_value, str) and directory_value not in directory_options:
@@ -574,17 +627,21 @@ def validate_expected_combo_options(base_url: str, workflow_prompt: dict[str, di
         "audio_upload_enabled": bool(audio_spec[1].get("audio_upload")),
         "image_options": image_options,
         "image_upload_enabled": bool(image_spec[1].get("image_upload")),
+        "batch_image_options": batch_upload_options,
+        "batch_image_upload_enabled": batch_upload_enabled,
+        "batch_allow_batch": batch_allow_batch,
         "directory_options": directory_options,
         "directory_schema": directory_spec[0],
     }
 
 
-def summarize_video_previews(history_entry: dict[str, Any], workflow_prompt: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize_previews(history_entry: dict[str, Any], workflow_prompt: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     outputs = history_entry.get("outputs", {})
     preview_summaries: list[dict[str, Any]] = []
 
     for node_id, node in sorted(workflow_prompt.items(), key=lambda item: int(item[0])):
-        if node["class_type"] != "LTXVideoCombine":
+        class_type = node["class_type"]
+        if class_type not in {"LTXVideoCombine", "PreviewImage"}:
             continue
         output_entry = outputs.get(node_id, {}) if isinstance(outputs, dict) else {}
         animated_value = output_entry.get("animated", False)
@@ -596,6 +653,7 @@ def summarize_video_previews(history_entry: dict[str, Any], workflow_prompt: dic
         summary = {
             "node_id": node_id,
             "title": node.get("_meta", {}).get("title", "LTXVideoCombine"),
+            "class_type": class_type,
             "has_images": bool(output_entry.get("images")),
             "animated": animated,
             "text": output_entry.get("text", []),
@@ -603,11 +661,15 @@ def summarize_video_previews(history_entry: dict[str, Any], workflow_prompt: dic
         preview_summaries.append(summary)
 
     if not preview_summaries:
-        raise RuntimeError("Smoke workflow did not include any LTXVideoCombine output nodes.")
+        raise RuntimeError("Smoke workflow did not include any PreviewImage or LTXVideoCombine output nodes.")
 
-    missing_preview = [item for item in preview_summaries if not item["has_images"] or not item["animated"]]
+    missing_preview = [
+        item
+        for item in preview_summaries
+        if not item["has_images"] or (item["class_type"] == "LTXVideoCombine" and not item["animated"])
+    ]
     if missing_preview:
-        raise RuntimeError(f"Video preview metadata missing from output nodes: {missing_preview!r}")
+        raise RuntimeError(f"Expected preview metadata missing from output nodes: {missing_preview!r}")
 
     return preview_summaries
 
@@ -624,6 +686,8 @@ def main() -> int:
 
     ffmpeg_path = discover_ffmpeg(args.python_exe, args.ffmpeg_exe)
     env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
     if ffmpeg_path is not None:
         env["PATH"] = str(ffmpeg_path.parent) + os.pathsep + env.get("PATH", "")
         env["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg_path)
@@ -678,7 +742,7 @@ def main() -> int:
             history_entry = wait_for_history(base_url, prompt_id, timeout=args.execution_timeout)
             status = history_entry.get("status", {})
             status_text = status.get("status_str") or status.get("status")
-            preview_summaries = summarize_video_previews(history_entry, prompt)
+            preview_summaries = summarize_previews(history_entry, prompt)
 
             result = {
                 "workflow": str(args.workflow),

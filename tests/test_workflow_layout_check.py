@@ -57,6 +57,98 @@ def test_sample_workflow_defaults_are_populated():
     assert audio_node["widgets_values"][0] == "ltx-demo-tone.wav"
 
 
+def test_multi_image_upload_workflow_layout_passes():
+    module = _load_layout_module()
+    workflow_path = Path(__file__).resolve().parents[1] / "samples" / "workflows" / "LTX_MultiImageUpload_Preview.json"
+
+    report = module.analyze_workflow(
+        workflow_path,
+        title_padding=80.0,
+        inner_padding=12.0,
+        require_all_nodes_in_groups=True,
+        require_app_mode=True,
+    )
+
+    assert report["issues"] == []
+    assert report["group_count"] == 1
+    assert report["node_count"] == 2
+    assert report["node_group_matches"]["Images Upload"] == ["Upload Multiple Images"]
+    assert report["node_group_matches"]["Preview Uploaded Images"] == ["Upload Multiple Images"]
+    assert report["app_mode"]["enabled"] is True
+    assert report["app_mode"]["selected_inputs"] == [[1, "image"]]
+    assert report["app_mode"]["selected_outputs"] == [2]
+
+
+def test_layout_checker_reports_disabled_output_node(tmp_path):
+    module = _load_layout_module()
+    workflow_path = tmp_path / "broken_output_mode_workflow.json"
+    workflow_path.write_text(
+        """
+{
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LTXLoadImageBatchUpload",
+      "title": "Images Upload",
+      "pos": [0, 100],
+      "size": [320, 220],
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "COMBO",
+          "link": null
+        }
+      ],
+      "widgets_values": [""]
+    },
+    {
+      "id": 2,
+      "type": "PreviewImage",
+      "title": "Preview Uploaded Images",
+      "pos": [420, 100],
+      "size": [220, 240],
+      "mode": 2,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 1
+        }
+      ]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Group A",
+      "bounding": [-20, 0, 720, 420]
+    }
+  ],
+  "extra": {
+    "linearMode": true,
+    "linearData": {
+      "inputs": [[1, "image"]],
+      "outputs": [2]
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    report = module.analyze_workflow(
+        workflow_path,
+        require_all_nodes_in_groups=True,
+        require_app_mode=True,
+    )
+
+    assert any("disabled with mode 2" in issue for issue in report["issues"])
+
+
 def test_layout_checker_reports_overlaps(tmp_path):
     module = _load_layout_module()
     workflow_path = tmp_path / "broken_workflow.json"

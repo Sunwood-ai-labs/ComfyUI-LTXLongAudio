@@ -19,6 +19,7 @@ def test_node_module_exports():
     assert "LTXLongAudioSegmentInfo" in module.NODE_CLASS_MAPPINGS
     assert "LTXRandomImageIndex" in module.NODE_CLASS_MAPPINGS
     assert "LTXLoadImageUpload" in module.NODE_CLASS_MAPPINGS
+    assert "LTXLoadImageBatchUpload" in module.NODE_CLASS_MAPPINGS
     assert "LTXBatchUploadedFrames" in module.NODE_CLASS_MAPPINGS
     assert "LTXRepeatImageBatch" in module.NODE_CLASS_MAPPINGS
     assert "LTXAppendImageBatch" in module.NODE_CLASS_MAPPINGS
@@ -249,6 +250,7 @@ def test_upload_inputs_include_blank_and_upload_metadata(monkeypatch: pytest.Mon
 
     audio_spec = module.NODE_CLASS_MAPPINGS["LTXLoadAudioUpload"].INPUT_TYPES()["required"]["audio"]
     image_spec = module.NODE_CLASS_MAPPINGS["LTXLoadImageUpload"].INPUT_TYPES()["required"]["image"]
+    image_batch_spec = module.NODE_CLASS_MAPPINGS["LTXLoadImageBatchUpload"].INPUT_TYPES()["required"]["image"]
     directory_spec = module.NODE_CLASS_MAPPINGS["LTXLoadImages"].INPUT_TYPES()["required"]["directory"]
 
     assert audio_spec[0] == "COMBO"
@@ -261,8 +263,48 @@ def test_upload_inputs_include_blank_and_upload_metadata(monkeypatch: pytest.Mon
     assert image_spec[1]["options"][0] == ""
     assert "root.png" in image_spec[1]["options"]
 
+    assert image_batch_spec[0] == "COMBO"
+    assert image_batch_spec[1]["image_upload"] is True
+    assert image_batch_spec[1]["allow_batch"] is True
+    assert image_batch_spec[1]["options"][0] == ""
+    assert "root.png" in image_batch_spec[1]["options"]
+
     assert directory_spec[0] == "COMBO"
     assert directory_spec[1]["options"][0] == ""
+
+
+def test_batch_upload_node_loads_multiple_images(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = _load_nodes_module()
+
+    comfy_input = tmp_path / "comfy_input"
+    comfy_input.mkdir()
+
+    if module.Image is None:
+        pytest.skip("Pillow is required for image loading tests")
+    if module.torch is None:
+        pytest.skip("torch is required for image loading tests")
+
+    image_a = comfy_input / "a.png"
+    image_b = comfy_input / "b.png"
+    module.Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(image_a)
+    module.Image.new("RGBA", (4, 4), (0, 255, 0, 128)).save(image_b)
+
+    monkeypatch.setattr(module, "_input_directory", lambda: str(comfy_input))
+    monkeypatch.setattr(module, "_sample_input_directory", lambda: tmp_path / "missing_samples")
+    monkeypatch.setattr(module, "folder_paths", None)
+
+    loader = module.NODE_CLASS_MAPPINGS["LTXLoadImageBatchUpload"]()
+    images, masks, frame_count = loader.load_images(["a.png", "b.png"])
+
+    assert images.shape == (2, 4, 4, 3)
+    assert masks.shape == (2, 4, 4)
+    assert frame_count == 2
+
+    wrapped_images, wrapped_masks, wrapped_count = loader.load_images({"__value__": ["a.png", "b.png"]})
+
+    assert wrapped_images.shape == (2, 4, 4, 3)
+    assert wrapped_masks.shape == (2, 4, 4)
+    assert wrapped_count == 2
 
 
 def test_ffmpeg_executable_uses_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

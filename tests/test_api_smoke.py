@@ -2,6 +2,8 @@ import argparse
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _load_api_smoke_module():
     module_path = Path(__file__).resolve().parents[1] / "scripts" / "run_comfyui_api_smoke.py"
@@ -70,3 +72,179 @@ def test_stage_default_input_assets_uses_tracked_audio_name(monkeypatch, tmp_pat
     staged = module.stage_default_input_assets(tmp_path / "input")
 
     assert Path(staged["audio"]).name == module.TRACKED_SAMPLE_AUDIO_NAME
+
+
+def test_prompt_widget_value_wraps_lists():
+    module = _load_api_smoke_module()
+
+    assert module.prompt_widget_value(["a.png", "b.png"]) == {"__value__": ["a.png", "b.png"]}
+    assert module.prompt_widget_value("a.png") == "a.png"
+
+
+def test_validate_workflow_defaults_accepts_batch_prompt_values():
+    module = _load_api_smoke_module()
+
+    workflow_prompt = {
+        "1": {
+            "class_type": "LTXLoadImageBatchUpload",
+            "inputs": {"image": {"__value__": ["a.png", "b.png"]}},
+            "_meta": {"title": "Images Upload"},
+        }
+    }
+
+    module.validate_workflow_defaults(workflow_prompt)
+
+
+def test_workflow_to_prompt_wraps_array_widget_values(tmp_path: Path):
+    module = _load_api_smoke_module()
+    workflow_path = tmp_path / "batch_workflow.json"
+    workflow_path.write_text(
+        """
+{
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LTXLoadImageBatchUpload",
+      "title": "Images Upload",
+      "inputs": [
+        {
+          "name": "image",
+          "type": "COMBO",
+          "link": null
+        }
+      ],
+      "widgets_values": [["a.png", "b.png"]]
+    }
+  ],
+  "links": []
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    prompt, _selected = module.workflow_to_prompt(workflow_path, node_registry=module.load_local_node_registry())
+
+    assert prompt["1"]["inputs"]["image"] == {"__value__": ["a.png", "b.png"]}
+
+
+def test_apply_smoke_overrides_fills_batch_upload_nodes(monkeypatch, tmp_path: Path):
+    module = _load_api_smoke_module()
+    frame_a = tmp_path / "a.png"
+    frame_b = tmp_path / "b.png"
+    frame_a.write_bytes(b"a")
+    frame_b.write_bytes(b"b")
+
+    monkeypatch.setattr(module, "choose_sample_frame_files", lambda: [frame_a, frame_b])
+    monkeypatch.setattr(module, "upload_input_file", lambda _base_url, file_path: file_path.name)
+
+    workflow_prompt = {
+        "1": {
+            "class_type": "LTXLoadImageBatchUpload",
+            "inputs": {"image": ""},
+            "_meta": {"title": "Images Upload"},
+        }
+    }
+
+    upload_info = module.apply_smoke_overrides("http://127.0.0.1:9999", workflow_prompt)
+
+    assert workflow_prompt["1"]["inputs"]["image"] == {"__value__": ["a.png", "b.png"]}
+    assert upload_info["uploaded_frames"] == ["a.png", "b.png"]
+
+
+def test_summarize_previews_accepts_preview_image_outputs():
+    module = _load_api_smoke_module()
+    history_entry = {
+        "outputs": {
+            "2": {
+                "images": [{"filename": "preview_00001.png", "type": "output", "subfolder": ""}],
+                "text": [],
+            }
+        }
+    }
+    workflow_prompt = {
+        "2": {
+            "class_type": "PreviewImage",
+            "_meta": {"title": "Preview Uploaded Images"},
+            "inputs": {},
+        }
+    }
+
+    previews = module.summarize_previews(history_entry, workflow_prompt)
+
+    assert previews == [
+        {
+            "node_id": "2",
+            "title": "Preview Uploaded Images",
+            "class_type": "PreviewImage",
+            "has_images": True,
+            "animated": False,
+            "text": [],
+        }
+    ]
+
+
+def test_apply_smoke_overrides_fills_batch_image_upload(monkeypatch):
+    module = _load_api_smoke_module()
+
+    workflow_prompt = {
+        "1": {
+            "class_type": "LTXLoadImageBatchUpload",
+            "inputs": {"image": ""},
+            "_meta": {"title": "Images Upload"},
+        }
+    }
+
+    monkeypatch.setattr(module, "choose_sample_frame_files", lambda: [Path("a.png"), Path("b.png")])
+    monkeypatch.setattr(module, "upload_input_file", lambda base_url, file_path: file_path.name)
+
+    upload_info = module.apply_smoke_overrides("http://127.0.0.1:8188", workflow_prompt)
+
+    assert workflow_prompt["1"]["inputs"]["image"] == {"__value__": ["a.png", "b.png"]}
+    assert upload_info["uploaded_frames"] == ["a.png", "b.png"]
+
+
+def test_validate_workflow_defaults_rejects_blank_batch_image_upload():
+    module = _load_api_smoke_module()
+
+    workflow_prompt = {
+        "1": {
+            "class_type": "LTXLoadImageBatchUpload",
+            "inputs": {"image": ""},
+            "_meta": {"title": "Images Upload"},
+        }
+    }
+
+    with pytest.raises(RuntimeError, match="missing default 'image'"):
+        module.validate_workflow_defaults(workflow_prompt)
+
+
+def test_summarize_previews_accepts_preview_image_output():
+    module = _load_api_smoke_module()
+
+    history_entry = {
+        "outputs": {
+            "2": {
+                "images": [{"filename": "preview.png"}],
+                "text": [],
+            }
+        }
+    }
+    workflow_prompt = {
+        "2": {
+            "class_type": "PreviewImage",
+            "_meta": {"title": "Preview Uploaded Images"},
+        }
+    }
+
+    summaries = module.summarize_previews(history_entry, workflow_prompt)
+
+    assert summaries == [
+        {
+            "node_id": "2",
+            "title": "Preview Uploaded Images",
+            "class_type": "PreviewImage",
+            "has_images": True,
+            "animated": False,
+            "text": [],
+        }
+    ]

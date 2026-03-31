@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 INVALID_APP_MODE_NODE_TYPES = {"Note", "MarkdownNote"}
+DISABLED_OUTPUT_NODE_MODES = {2, 4}
 
 
 def rect_from_xywh(values):
@@ -234,6 +235,10 @@ def analyze_app_mode(data, nodes, *, node_registry=None, require_app_mode=False)
             issues.append(
                 f"app mode invalid output node: '{node.get('title') or node.get('type')}' is not marked as OUTPUT_NODE"
             )
+        if int(node.get("mode", 0)) in DISABLED_OUTPUT_NODE_MODES:
+            issues.append(
+                f"app mode invalid output node: '{node.get('title') or node.get('type')}' is disabled with mode {node.get('mode')!r}"
+            )
         if node_id in seen_outputs:
             issues.append(f"app mode duplicate output: node {node_id!r} is listed more than once")
         seen_outputs.add(node_id)
@@ -277,6 +282,7 @@ def analyze_workflow(
                 "id": node.get("id"),
                 "title": node.get("title") or node.get("type") or f"node-{node.get('id', '?')}",
                 "type": node.get("type", ""),
+                "mode": node.get("mode", 0),
                 "rect": rect,
                 "inputs": node.get("inputs", []),
                 "outputs": node.get("outputs", []),

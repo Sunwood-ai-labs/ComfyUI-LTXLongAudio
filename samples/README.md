@@ -4,6 +4,8 @@
 
 `workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json` is the heavier verified long-audio Origin workflow that keeps the full LTX 2.3 generation path and swaps in the native `LTX*` long-audio loop helpers from this repository.
 
+`workflows/LTX_MultiImageUpload_Preview.json` is a tiny App mode workflow that uploads multiple still images through one input, loads them as an `IMAGE` batch with `LTXLoadImageBatchUpload`, and previews the batch immediately with `PreviewImage`. Select multiple still images at once, and keep every selected image at the same width and height.
+
 Expected runtime inputs:
 
 - The bundled workflow now opens with concrete sample defaults.
@@ -27,6 +29,11 @@ The workflow exercises:
 - `LTXBuildChunkedStillVideo`
 - `LTXIntConstant`
 - `LTXVideoCombine`
+
+The multi-image upload preview workflow exercises:
+
+- `LTXLoadImageBatchUpload`
+- `PreviewImage`
 
 Before publishing a workflow update, you can also lint the layout. The checker verifies group bounds, title-band collisions, node-node overlaps, App mode metadata, and common runtime contract issues such as missing required links or linked combo widgets:
 

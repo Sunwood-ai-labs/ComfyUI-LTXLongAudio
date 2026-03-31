@@ -295,6 +295,38 @@ def _combo_input(values: list[str], **extra: Any):
     return ("COMBO", options)
 
 
+def _normalize_uploaded_selection(value: Any) -> list[str]:
+    if isinstance(value, dict) and "__value__" in value:
+        value = value["__value__"]
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item]
+    return [str(value)] if value else []
+
+
+def _load_rgba_image_tensors(image_path: str):
+    _require("numpy", np)
+    _require("torch", torch)
+    _require("Pillow", Image)
+    loaded_image = ImageOps.exif_transpose(Image.open(image_path)).convert("RGBA")
+    array = np.asarray(loaded_image).astype("float32") / 255.0
+    rgb = torch.from_numpy(array[:, :, :3])
+    mask = torch.from_numpy(1.0 - array[:, :, 3])
+    return rgb, mask, loaded_image.size
+
+
+def _hash_uploaded_selection(value: Any) -> str:
+    selected = _normalize_uploaded_selection(value)
+    if not selected:
+        return "blank"
+    digest = hashlib.sha256()
+    for item in selected:
+        digest.update(_hash_path(_resolve_input_path(item)).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def _hash_path(path: str) -> str:
     target = pathlib.Path(path)
     if not target.exists():
@@ -777,21 +809,71 @@ class CompatLoadImageUpload:
     CATEGORY = "LTX/Workflow"
 
     def load_image(self, image):
-        _require("numpy", np)
-        _require("torch", torch)
-        _require("Pillow", Image)
         if not image:
             raise ValueError("Upload or select an image before running this node.")
         image_path = _resolve_input_path(image)
-        loaded_image = ImageOps.exif_transpose(Image.open(image_path)).convert("RGBA")
-        array = np.asarray(loaded_image).astype("float32") / 255.0
-        rgb = torch.from_numpy(array[:, :, :3]).unsqueeze(0)
-        mask = torch.from_numpy(1.0 - array[:, :, 3]).unsqueeze(0)
+        rgb, mask, _image_size = _load_rgba_image_tensors(image_path)
+        rgb = rgb.unsqueeze(0)
+        mask = mask.unsqueeze(0)
         return rgb, mask
 
     @classmethod
     def IS_CHANGED(cls, image, **kwargs):
         return _hash_path(_resolve_input_path(image)) if image else "blank"
+
+
+class CompatLoadImageBatchUpload:
+    @classmethod
+    def INPUT_TYPES(cls):
+        files = _combo_values_with_blank(_list_input_image_files())
+        return {"required": {"image": _combo_input(files, image_upload=True, allow_batch=True)}}
+
+    RETURN_TYPES = ("IMAGE", "MASK", "INT")
+    RETURN_NAMES = ("IMAGE", "MASK", "frame_count")
+    FUNCTION = "load_images"
+    CATEGORY = "LTX/Workflow"
+
+    def load_images(self, image):
+        selected = _normalize_uploaded_selection(image)
+        if not selected:
+            raise ValueError("Upload or select one or more images before running this node.")
+
+        frames = []
+        masks = []
+        expected_size = None
+        for item in selected:
+            image_path = _resolve_input_path(item)
+            rgb, mask, image_size = _load_rgba_image_tensors(image_path)
+            if expected_size is None:
+                expected_size = image_size
+            elif image_size != expected_size:
+                raise ValueError(
+                    "All uploaded images must share the same size. "
+                    f"Expected {expected_size[0]}x{expected_size[1]}, "
+                    f"got {image_size[0]}x{image_size[1]} for {item}."
+                )
+            frames.append(rgb)
+            masks.append(mask)
+
+        return torch.stack(frames, dim=0), torch.stack(masks, dim=0), len(frames)
+
+    @classmethod
+    def IS_CHANGED(cls, image, **kwargs):
+        return _hash_uploaded_selection(image)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, image):
+        selected = _normalize_uploaded_selection(image)
+        if not selected:
+            return "Upload or select one or more images before running this node."
+        for item in selected:
+            try:
+                image_path = _resolve_input_path(item)
+            except Exception:
+                return f"Invalid image file: {item}"
+            if not pathlib.Path(image_path).exists():
+                return f"Invalid image file: {item}"
+        return True
 
 
 class LTXBatchUploadedFrames:
@@ -1977,6 +2059,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXLongAudioSegmentInfo": LTXLongAudioSegmentInfo,
     "LTXRandomImageIndex": LTXRandomImageIndex,
     "LTXLoadImageUpload": CompatLoadImageUpload,
+    "LTXLoadImageBatchUpload": CompatLoadImageBatchUpload,
     "LTXBatchUploadedFrames": LTXBatchUploadedFrames,
     "LTXRepeatImageBatch": LTXRepeatImageBatch,
     "LTXAppendImageBatch": LTXAppendImageBatch,

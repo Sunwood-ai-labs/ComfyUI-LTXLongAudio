@@ -45,7 +45,7 @@ The current App mode surface stays focused on folder selection, source-audio upl
 ## Signal Highlights
 
 - Native long-audio helpers: `LTXAudioDuration`, `LTXLongAudioSegmentInfo`, `LTXAudioSlice`, and `LTXAudioConcatenate` handle duration-aware chunk planning and audio stitching.
-- Native image and folder inputs: `LTXLoadAudioUpload`, `LTXLoadImageUpload`, `LTXBatchUploadedFrames`, and `LTXLoadImages` keep folder-plus-audio workflows inside core ComfyUI inputs.
+- Native image and folder inputs: `LTXLoadAudioUpload`, `LTXLoadImageUpload`, `LTXLoadImageBatchUpload`, `LTXBatchUploadedFrames`, and `LTXLoadImages` keep folder-plus-audio workflows inside core ComfyUI inputs.
 - Native loop control: `LTXWhileLoopStart`, `LTXWhileLoopEnd`, `LTXForLoopStart`, and `LTXForLoopEnd` remove the need for legacy loop-control packs.
 - Native preview path: `LTXBuildChunkedStillVideo`, `LTXEnsureImageBatch`, `LTXEnsureAudio`, and `LTXVideoCombine` generate one previewable MP4 from per-chunk frames plus the original full-length audio.
 - Native workflow utilities: `LTXSimpleMath`, `LTXSimpleCalculator`, `LTXCompare`, `LTXIfElse`, `LTXIndexAnything`, `LTXBatchAnything`, `LTXSeedList`, and `LTXShowAnything` cover the helper surfaces used by the shipped graph.
@@ -80,6 +80,7 @@ For the full LTX 2.3 app stack, this repository also ships the verified long-aud
 
 - Workflow: `samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
 - Workflow: `samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json`
+- Workflow: `samples/workflows/LTX_MultiImageUpload_Preview.json` (one upload input, multiple still images of the same size)
 - Sample asset root: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 - API smoke runner: `scripts/run_comfyui_api_smoke.py`
@@ -110,6 +111,7 @@ More detail lives in [samples/README.md](samples/README.md) and the published gu
 
 - `LTXLoadAudioUpload`
 - `LTXLoadImageUpload`
+- `LTXLoadImageBatchUpload`
 - `LTXLoadImages`
 - `LTXBatchUploadedFrames`
 - `LTXRepeatImageBatch`
