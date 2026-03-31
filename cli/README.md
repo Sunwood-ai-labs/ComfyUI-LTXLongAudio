@@ -71,11 +71,52 @@ uv run python cli/prepare_smoke_assets.py \
   --overwrite
 ```
 
+The prepared output will contain:
+
+- `audio/HOWL AT THE HAIRPIN2_20s.wav`
+- `frames/*.png` resized to `384x216`
+- `smoke_assets_manifest.json`
+
+Validated lightweight GPU smoke run:
+
+```bash
+uv run python cli/ltx23_gpu_ready.py \
+  --audio cli_output/smoke_assets/howl20_momiji/audio/HOWL\ AT\ THE\ HAIRPIN2_20s.wav \
+  --frames-dir cli_output/smoke_assets/howl20_momiji/frames \
+  --prompt "a" \
+  --negative-prompt "" \
+  --checkpoint-path /workspace/models/ltx23_official/checkpoints/ltx-2.3-22b-dev.safetensors \
+  --distilled-lora-path /workspace/models/ltx23_official/loras/ltx-2.3-22b-distilled-lora-384.safetensors \
+  --spatial-upsampler-path /workspace/models/ltx23_official/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors \
+  --gemma-root /workspace/models/ltx23_official/gemma \
+  --ltx-python /workspace/LTX-2/.venv/bin/python \
+  --ltx-repo-root /workspace/LTX-2 \
+  --output-dir /workspace/ltx23_howl20_smoke \
+  --segment-seconds 20 \
+  --fps 1 \
+  --width 128 \
+  --height 64 \
+  --num-inference-steps 1 \
+  --quantization fp8-cast \
+  --video-cfg-guidance-scale 1.0 \
+  --extra-ltx-arg=--streaming-prefetch-count \
+  --extra-ltx-arg=1 \
+  --run \
+  --overwrite
+```
+
+This is the smallest image-conditioned recipe currently verified to finish on the L4 validation instance. It produced:
+
+- one rendered segment
+- `ltx23_gpu_ready_manifest.json`
+- `LTX-2.3-longaudio-randomimg.mp4`
+
 Notes:
 
 - `ltx23_gpu_ready.py` normalizes width and height down to multiples of 64 for the official two-stage backend.
 - `--emit-run-script` and `--run` both require real model asset paths; prepare-only without those flags can still emit a preview manifest.
 - When `--conditioning-audio` is provided, segment commands condition on that file while the final mux still restores the original `--audio`.
+- When `--run` or `--emit-run-script` is used, segment conditioning audio is prepared per chunk as stereo WAV under `conditioning_audio/`.
 - `ltx23_download_models.py` follows the notebook reference only for asset selection. It downloads the official runner assets, not the ComfyUI-specific GGUF extras from the notebook stack.
 - The Gemma snapshot used by the official pipeline is gated on Hugging Face, so `HF_TOKEN` may be required for a full download.
 - `ltx23_download_models.py --skip-gemma` lets you fetch the public assets first and add Gemma later.

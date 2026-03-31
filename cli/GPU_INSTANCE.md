@@ -95,6 +95,60 @@ To run the same job directly on the GPU instance instead of only writing the scr
 --run
 ```
 
+## Validated L4 smoke recipe
+
+The following path was validated end-to-end on the GPU handoff instance:
+
+1. Prepare a smaller dataset from the bundled large WAV and studio stills:
+
+```bash
+uv run python cli/prepare_smoke_assets.py \
+  --audio "samples/input/HOWL AT THE HAIRPIN2.wav" \
+  --frames-dir samples/input/momiji_studio \
+  --output-dir /workspace/ltx23_assets_howl20_momiji \
+  --clip-seconds 20 \
+  --resize-width 384 \
+  --resize-height 216 \
+  --overwrite
+```
+
+2. Run the smallest image-conditioned job that completed on the L4:
+
+```bash
+uv run python cli/ltx23_gpu_ready.py \
+  --audio /workspace/ltx23_assets_howl20_momiji/audio/HOWL\ AT\ THE\ HAIRPIN2_20s.wav \
+  --frames-dir /workspace/ltx23_assets_howl20_momiji/frames \
+  --prompt "a" \
+  --negative-prompt "" \
+  --checkpoint-path /workspace/models/ltx23_official/checkpoints/ltx-2.3-22b-dev.safetensors \
+  --distilled-lora-path /workspace/models/ltx23_official/loras/ltx-2.3-22b-distilled-lora-384.safetensors \
+  --spatial-upsampler-path /workspace/models/ltx23_official/upscalers/ltx-2.3-spatial-upscaler-x2-1.1.safetensors \
+  --gemma-root /workspace/models/ltx23_official/gemma \
+  --ltx-python /workspace/LTX-2/.venv/bin/python \
+  --ltx-repo-root /workspace/LTX-2 \
+  --output-dir /workspace/ltx23_howl20_smoke \
+  --segment-seconds 20 \
+  --fps 1 \
+  --width 128 \
+  --height 64 \
+  --num-inference-steps 1 \
+  --quantization fp8-cast \
+  --video-cfg-guidance-scale 1.0 \
+  --extra-ltx-arg=--streaming-prefetch-count \
+  --extra-ltx-arg=1 \
+  --run \
+  --overwrite
+```
+
+Observed output on the validation instance:
+
+- final video: `/workspace/ltx23_howl20_smoke/LTX-2.3-longaudio-randomimg.mp4`
+- manifest: `/workspace/ltx23_howl20_smoke/ltx23_gpu_ready_manifest.json`
+- one selected resized frame from `momiji_studio`
+- one prepared stereo conditioning chunk under `/workspace/ltx23_howl20_smoke/conditioning_audio/`
+
+This recipe intentionally uses `fps=1`, `128x64`, `num-inference-steps=1`, and a minimal prompt because larger settings were not reliable on that `NVIDIA L4 24GB` instance.
+
 ## Optional vocals-only conditioning
 
 The ComfyUI workflow can condition on vocals-only audio while preserving the
