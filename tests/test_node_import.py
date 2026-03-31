@@ -24,6 +24,7 @@ def test_node_module_exports():
     assert "LTXRepeatImageBatch" in module.NODE_CLASS_MAPPINGS
     assert "LTXAppendImageBatch" in module.NODE_CLASS_MAPPINGS
     assert "LTXEnsureImageBatch" in module.NODE_CLASS_MAPPINGS
+    assert "LTXTileImageBatch" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopStart" in module.NODE_CLASS_MAPPINGS
     assert "LTXForLoopEnd" in module.NODE_CLASS_MAPPINGS
     assert "LTXAudioSlice" in module.NODE_CLASS_MAPPINGS
@@ -305,6 +306,90 @@ def test_batch_upload_node_loads_multiple_images(monkeypatch: pytest.MonkeyPatch
     assert wrapped_images.shape == (2, 4, 4, 3)
     assert wrapped_masks.shape == (2, 4, 4)
     assert wrapped_count == 2
+
+
+def test_tile_image_batch_node_tiles_images():
+    module = _load_nodes_module()
+
+    if module.torch is None:
+        pytest.skip("torch is required for image tiling tests")
+
+    tile = module.NODE_CLASS_MAPPINGS["LTXTileImageBatch"]()
+    image_values = (0.1, 0.4, 0.7, 1.0)
+    images = module.torch.stack(
+        [module.torch.full((4, 4, 3), value, dtype=module.torch.float32) for value in image_values],
+        dim=0,
+    )
+
+    tiled, rows, columns = tile.tile_images(images, columns=2, gap=1, background=0.2)
+
+    assert tiled.shape == (1, 9, 9, 3)
+    assert rows == 2
+    assert columns == 2
+    assert module.torch.allclose(tiled[0, 0:4, 0:4, :], module.torch.full((4, 4, 3), 0.1))
+    assert module.torch.allclose(tiled[0, 0:4, 5:9, :], module.torch.full((4, 4, 3), 0.4))
+    assert module.torch.allclose(tiled[0, 5:9, 0:4, :], module.torch.full((4, 4, 3), 0.7))
+    assert module.torch.allclose(tiled[0, 5:9, 5:9, :], module.torch.full((4, 4, 3), 1.0))
+    assert module.torch.allclose(tiled[0, 4, :, :], module.torch.full((9, 3), 0.2))
+    assert module.torch.allclose(tiled[0, :, 4, :], module.torch.full((9, 3), 0.2))
+
+
+def test_tile_image_batch_accepts_single_images_and_rejects_invalid_inputs():
+    module = _load_nodes_module()
+
+    if module.torch is None:
+        pytest.skip("torch is required for image tiling tests")
+
+    tile = module.NODE_CLASS_MAPPINGS["LTXTileImageBatch"]()
+    single_image = module.torch.full((3, 2, 3), 0.6, dtype=module.torch.float32)
+
+    tiled, rows, columns = tile.tile_images(single_image, gap=5)
+
+    assert tiled.shape == (1, 3, 2, 3)
+    assert rows == 1
+    assert columns == 1
+    assert module.torch.allclose(tiled[0], single_image)
+
+    sample_batch = {"samples": single_image.unsqueeze(0)}
+    tiled_from_samples, sample_rows, sample_columns = tile.tile_images(sample_batch)
+
+    assert tiled_from_samples.shape == (1, 3, 2, 3)
+    assert sample_rows == 1
+    assert sample_columns == 1
+    assert module.torch.allclose(tiled_from_samples[0], single_image)
+
+    with pytest.raises(TypeError, match="Expected IMAGE tensor data."):
+        tile.tile_images("not-an-image")
+
+    with pytest.raises(ValueError, match="Expected IMAGE batch tensor with 4 dimensions."):
+        tile.tile_images(module.torch.zeros((4, 4), dtype=module.torch.float32))
+
+
+def test_tile_image_batch_keeps_background_for_empty_cells():
+    module = _load_nodes_module()
+
+    if module.torch is None:
+        pytest.skip("torch is required for image tiling tests")
+
+    tile = module.NODE_CLASS_MAPPINGS["LTXTileImageBatch"]()
+    images = module.torch.stack(
+        [
+            module.torch.full((2, 3, 3), 0.1, dtype=module.torch.float32),
+            module.torch.full((2, 3, 3), 0.5, dtype=module.torch.float32),
+            module.torch.full((2, 3, 3), 0.9, dtype=module.torch.float32),
+        ],
+        dim=0,
+    )
+
+    tiled, rows, columns = tile.tile_images(images, columns=2, gap=2, background=0.3)
+
+    assert tiled.shape == (1, 6, 8, 3)
+    assert rows == 2
+    assert columns == 2
+    assert module.torch.allclose(tiled[0, 0:2, 0:3, :], module.torch.full((2, 3, 3), 0.1))
+    assert module.torch.allclose(tiled[0, 0:2, 5:8, :], module.torch.full((2, 3, 3), 0.5))
+    assert module.torch.allclose(tiled[0, 4:6, 0:3, :], module.torch.full((2, 3, 3), 0.9))
+    assert module.torch.allclose(tiled[0, 4:6, 5:8, :], module.torch.full((2, 3, 3), 0.3))
 
 
 def test_ffmpeg_executable_uses_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

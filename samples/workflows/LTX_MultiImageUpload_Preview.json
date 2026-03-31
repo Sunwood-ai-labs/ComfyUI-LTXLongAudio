@@ -1,8 +1,8 @@
 {
   "id": "ltx-multi-image-upload-preview",
   "revision": 7,
-  "last_node_id": 2,
-  "last_link_id": 1,
+  "last_node_id": 3,
+  "last_link_id": 2,
   "version": 0.4,
   "config": {},
   "extra": {
@@ -24,7 +24,7 @@
         ]
       ],
       "outputs": [
-        2
+        3
       ]
     }
   },
@@ -96,14 +96,14 @@
     },
     {
       "id": 2,
-      "type": "PreviewImage",
+      "type": "LTXTileImageBatch",
       "pos": [
-        -860,
+        -1090,
         35
       ],
       "size": [
-        210,
-        246
+        260,
+        188
       ],
       "flags": {},
       "order": 1,
@@ -115,10 +115,61 @@
           "link": 1
         }
       ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "rows",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "columns",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXTileImageBatch"
+      },
+      "widgets_values": [
+        0,
+        8,
+        0.0
+      ],
+      "title": "Tile Uploaded Images"
+    },
+    {
+      "id": 3,
+      "type": "PreviewImage",
+      "pos": [
+        -790,
+        35
+      ],
+      "size": [
+        210,
+        246
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 2
+        }
+      ],
+      "outputs": [],
       "properties": {
         "Node name for S&R": "PreviewImage"
       },
-      "title": "Preview Uploaded Images"
+      "title": "Preview Tiled Images"
     }
   ],
   "links": [
@@ -127,6 +178,14 @@
       1,
       0,
       2,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
       0,
       "IMAGE"
     ]

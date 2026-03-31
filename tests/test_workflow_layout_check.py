@@ -71,12 +71,13 @@ def test_multi_image_upload_workflow_layout_passes():
 
     assert report["issues"] == []
     assert report["group_count"] == 1
-    assert report["node_count"] == 2
+    assert report["node_count"] == 3
     assert report["node_group_matches"]["Images Upload"] == ["Upload Multiple Images"]
-    assert report["node_group_matches"]["Preview Uploaded Images"] == ["Upload Multiple Images"]
+    assert report["node_group_matches"]["Tile Uploaded Images"] == ["Upload Multiple Images"]
+    assert report["node_group_matches"]["Preview Tiled Images"] == ["Upload Multiple Images"]
     assert report["app_mode"]["enabled"] is True
     assert report["app_mode"]["selected_inputs"] == [[1, "image"]]
-    assert report["app_mode"]["selected_outputs"] == [2]
+    assert report["app_mode"]["selected_outputs"] == [3]
 
 
 def test_layout_checker_reports_disabled_output_node(tmp_path):

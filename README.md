@@ -80,7 +80,7 @@ For the full LTX 2.3 app stack, this repository also ships the verified long-aud
 
 - Workflow: `samples/workflows/LTXLongAudio_CustomNodes_SmokeTest.json`
 - Workflow: `samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video_App_Origin.json`
-- Workflow: `samples/workflows/LTX_MultiImageUpload_Preview.json` (one upload input, multiple still images of the same size)
+- Workflow: `samples/workflows/LTX_MultiImageUpload_Preview.json` (one image-upload input and tiled preview of uploaded still images)
 - Sample asset root: `samples/input/`
 - Layout checker: `scripts/check_workflow_layout.py`
 - API smoke runner: `scripts/run_comfyui_api_smoke.py`
@@ -113,6 +113,7 @@ More detail lives in [samples/README.md](samples/README.md) and the published gu
 - `LTXLoadImageUpload`
 - `LTXLoadImageBatchUpload`
 - `LTXLoadImages`
+- `LTXTileImageBatch`
 - `LTXBatchUploadedFrames`
 - `LTXRepeatImageBatch`
 

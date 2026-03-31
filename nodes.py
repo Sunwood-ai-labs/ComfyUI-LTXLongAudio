@@ -1373,6 +1373,65 @@ class LTXEnsureImageBatch:
         return images, int(images.shape[0])
 
 
+class LTXTileImageBatch:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {"images": ("IMAGE",)},
+            "optional": {
+                "columns": ("INT", {"default": 0, "min": 0, "max": 64, "step": 1}),
+                "gap": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1}),
+                "background": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT", "INT")
+    RETURN_NAMES = ("IMAGE", "rows", "columns")
+    FUNCTION = "tile_images"
+    CATEGORY = "LTX/Workflow"
+
+    def tile_images(self, images, columns=0, gap=8, background=0.0):
+        _require("torch", torch)
+        if isinstance(images, dict) and "samples" in images:
+            images = images["samples"]
+        if not isinstance(images, torch.Tensor):
+            raise TypeError("Expected IMAGE tensor data.")
+        if images.dim() == 3:
+            images = images.unsqueeze(0)
+        if images.dim() != 4:
+            raise ValueError("Expected IMAGE batch tensor with 4 dimensions.")
+
+        batch, height, width, channels = images.shape
+        if batch < 1:
+            raise ValueError("Expected at least one image to tile.")
+
+        tile_columns = int(columns)
+        if tile_columns <= 0:
+            tile_columns = max(1, int(math.ceil(math.sqrt(batch))))
+        tile_columns = min(tile_columns, int(batch))
+        tile_rows = int(math.ceil(batch / tile_columns))
+        tile_gap = max(int(gap), 0)
+        bg_value = min(max(float(background), 0.0), 1.0)
+
+        tiled_height = tile_rows * int(height) + max(tile_rows - 1, 0) * tile_gap
+        tiled_width = tile_columns * int(width) + max(tile_columns - 1, 0) * tile_gap
+        tiled = torch.full(
+            (tiled_height, tiled_width, int(channels)),
+            bg_value,
+            dtype=images.dtype,
+            device=images.device,
+        )
+
+        for index in range(batch):
+            row = index // tile_columns
+            column = index % tile_columns
+            top = row * (int(height) + tile_gap)
+            left = column * (int(width) + tile_gap)
+            tiled[top:top + int(height), left:left + int(width), :] = images[index]
+
+        return tiled.unsqueeze(0).contiguous(), tile_rows, tile_columns
+
+
 class LTXEnsureAudio:
     @classmethod
     def INPUT_TYPES(cls):
@@ -2064,6 +2123,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXRepeatImageBatch": LTXRepeatImageBatch,
     "LTXAppendImageBatch": LTXAppendImageBatch,
     "LTXEnsureImageBatch": LTXEnsureImageBatch,
+    "LTXTileImageBatch": LTXTileImageBatch,
     "LTXShowAnything": CompatShowAnything,
     "LTXSimpleMath": CompatSimpleMath,
     "LTXSeedList": CompatSeedList,
