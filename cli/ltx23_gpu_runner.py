@@ -24,6 +24,7 @@ DEFAULT_WORKFLOW = Path("samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video
 DEFAULT_MANIFEST_NAME = "ltx23_gpu_ready_manifest.json"
 DEFAULT_PIPELINE_MODULE = "ltx_pipelines.a2vid_two_stage"
 DEFAULT_OUTPUT_PREFIX = "LTX-2.3-longaudio-randomimg"
+DEFAULT_DISTILLED_LORA_STRENGTH = 0.6
 DEFAULT_VIDEO_GUIDANCE_SCALE = 3.5
 DEFAULT_NEGATIVE_PROMPT = (
     "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, "
@@ -83,7 +84,7 @@ class LTX23RuntimeConfig:
     ltx_repo_root: Path | None = None
     checkpoint_path: Path | None = None
     distilled_lora_path: Path | None = None
-    distilled_lora_strength: float = 1.0
+    distilled_lora_strength: float = DEFAULT_DISTILLED_LORA_STRENGTH
     spatial_upsampler_path: Path | None = None
     gemma_root: Path | None = None
     output_dir: Path = Path(".")
@@ -1503,7 +1504,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--distilled-lora-strength",
         type=float,
-        default=float(os.environ.get("LTX2_DISTILLED_LORA_STRENGTH", "1.0")),
+        default=float(os.environ.get("LTX2_DISTILLED_LORA_STRENGTH", str(DEFAULT_DISTILLED_LORA_STRENGTH))),
     )
     parser.add_argument("--spatial-upsampler-path", default=os.environ.get("LTX2_SPATIAL_UPSAMPLER_PATH"))
     parser.add_argument("--gemma-root", default=os.environ.get("LTX2_GEMMA_ROOT"))
@@ -1745,7 +1746,9 @@ def run(argv: list[str] | None = None) -> int:
     manifest["width"] = width
     manifest["height"] = height
     manifest["ltx_seed_base"] = ltx_seed_base
+    manifest["distilled_lora_strength"] = runtime.distilled_lora_strength
     manifest["pipeline_module"] = runtime.pipeline_module
+    manifest["runtime_backend"] = "official-python"
     manifest["prompt_encoder_device"] = runtime.prompt_encoder_device
     manifest["performance_profile"] = runtime.performance_profile
     manifest["streaming_prefetch_count"] = runtime.streaming_prefetch_count
@@ -1763,12 +1766,14 @@ def run(argv: list[str] | None = None) -> int:
     manifest["timings"] = _build_timing_summary(debug_logger.events)
     manifest["notes"] = [
         "Backend target: official LTX-2 a2vid two-stage pipeline in-process.",
+        f"Default distilled LoRA strength follows the saved Origin workflow: {runtime.distilled_lora_strength}.",
         "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
         "Final mux always restores the original source audio after segment video concatenation.",
         "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
         f"Prompt encoder device override: {runtime.prompt_encoder_device}.",
         f"Performance profile: {runtime.performance_profile}.",
         f"Prompt streaming prefetch count: {runtime.prompt_streaming_prefetch_count}.",
+        "This runner stays inside Python packages and does not import or execute ComfyUI.",
         "Use --debug to emit step-by-step progress plus a JSONL debug log.",
         "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
     ]

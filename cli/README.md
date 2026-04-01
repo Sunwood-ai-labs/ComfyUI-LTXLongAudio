@@ -32,6 +32,8 @@ Main entrypoints:
 - `ltx_origin_long_audio.py`: experimental still-image MP4 prototype
 - `python -m cli.audio_segmentation`: visualize a WAV file, estimate natural split points, and optionally export chunk WAV files
 
+The CLI stays inside Python packages. It does not import or execute ComfyUI at runtime. The notebook and Origin workflow are treated as reference material for defaults, model filenames, and asset closure only.
+
 Run the simple planner with `uv`:
 
 ```bash
@@ -59,6 +61,27 @@ uv run python cli/ltx23_gpu_ready.py \
   --emit-run-script \
   --overwrite
 ```
+
+If you want the notebook / Origin workflow asset closure instead of the official `ltx_pipelines` asset set, use the dedicated profile:
+
+```bash
+uv run python cli/ltx23_download_models.py \
+  --asset-profile notebook-comfy \
+  --assets-root /workspace/models/ltx23_notebook
+```
+
+That profile downloads the notebook-aligned files:
+
+- `ltx-2.3-22b-dev-Q4_K_M.gguf`
+- `gemma_3_12B_it_fp8_scaled.safetensors`
+- `mmproj-BF16.gguf`
+- `ltx-2.3-22b-dev_embeddings_connectors.safetensors`
+- `ltx-2.3-22b-dev_video_vae.safetensors`
+- `ltx-2.3-22b-dev_audio_vae.safetensors`
+- `ltx-2.3-spatial-upscaler-x2-1.0.safetensors`
+- `ltx-2.3-22b-distilled-lora-384.safetensors`
+- `MelBandRoformer_fp16.safetensors`
+- `taeltx2_3.safetensors`
 
 When `--run` is enabled, `ltx23_gpu_ready.py` now executes the official LTX pipeline in-process instead of spawning one Python subprocess per segment. The current interpreter must be able to import the official `ltx_pipelines` packages. On GPU boxes that usually means running this CLI from the LTX-2 environment and pointing `--ltx-repo-root` at the cloned official repository.
 
@@ -167,7 +190,8 @@ Notes:
 - `--emit-run-script` and `--run` both require real model asset paths; prepare-only without those flags can still emit a preview manifest.
 - When `--conditioning-audio` is provided, segment commands condition on that file while the final mux still restores the original `--audio`.
 - When `--run` or `--emit-run-script` is used, segment conditioning audio is prepared per chunk as stereo WAV under `conditioning_audio/`.
-- `ltx23_download_models.py` follows the notebook reference only for asset selection. It downloads the official runner assets, not the ComfyUI-specific GGUF extras from the notebook stack.
+- `ltx23_download_models.py` now supports two asset profiles: `official` for the current `ltx_pipelines` runner, and `notebook-comfy` for the notebook / Origin workflow asset closure.
+- `ltx23_gpu_ready.py` still targets the official Python `ltx_pipelines` backend today. Downloading the notebook profile does not mean the runner starts importing ComfyUI.
 - The Gemma snapshot used by the official pipeline is gated on Hugging Face, so `HF_TOKEN` may be required for a full download.
 - `ltx23_download_models.py --skip-gemma` lets you fetch the public assets first and add Gemma later.
 

@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import cli.ltx23_gpu_runner as gpu_runner
 from cli.ltx23_gpu_runner import (
+    DEFAULT_DISTILLED_LORA_STRENGTH,
     LTX23RuntimeConfig,
     LTX23WorkflowDefaults,
     Ltx23Assets,
@@ -22,6 +23,7 @@ from cli.ltx23_gpu_runner import (
     build_segment_command,
     build_segment_commands,
     main,
+    parse_args,
 )
 
 
@@ -66,6 +68,12 @@ def test_build_segment_command_includes_audio_and_image():
     assert "--image" in command
     assert "--num-frames" in command
     assert "--video-cfg-guidance-scale" in command
+
+
+def test_parse_args_uses_workflow_aligned_lora_strength_default():
+    args = parse_args([])
+
+    assert args.distilled_lora_strength == pytest.approx(DEFAULT_DISTILLED_LORA_STRENGTH)
 
 
 def test_build_segment_command_omits_image_for_text_to_video():
