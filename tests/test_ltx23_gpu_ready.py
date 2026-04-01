@@ -481,6 +481,78 @@ def test_run_requires_real_gemma_snapshot_for_script_generation(tmp_path: Path):
         )
 
 
+def test_notebook_referenced_backend_rejects_emit_run_script(tmp_path: Path):
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"title": "Source Song Upload", "widgets_values": ["demo.wav", None, None]},
+                    {"title": "Segment Image Folder", "widgets_values": ["frames", 0, 0, 1]},
+                    {"title": "SEGMENT SECONDS", "widgets_values": [10]},
+                    {"title": "FPS", "widgets_values": [8]},
+                    {"title": "RANDOM IMAGE SEED", "widgets_values": [99]},
+                    {"title": "PROMPT", "widgets_values": ["demo prompt"]},
+                    {"title": "Text To Video (no image ref)", "widgets_values": [False]},
+                    {"title": "USE ONLY VOCALS", "widgets_values": [False]},
+                    {"title": "WIDTH", "widgets_values": [832]},
+                    {"title": "HEIGHT", "widgets_values": [480]},
+                    {"id": 110, "type": "CLIPTextEncode", "widgets_values": ["bad"]},
+                    {"id": 114, "type": "RandomNoise", "widgets_values": [420, "fixed"]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    audio_path = tmp_path / "demo.wav"
+    _write_wave_file(audio_path, frame_rate=4, frame_count=100)
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    (frames_dir / "frame.png").write_bytes(b"img")
+    for name in ("checkpoint.safetensors", "distilled.safetensors", "upscaler.safetensors"):
+        (tmp_path / name).write_bytes(b"model")
+    gemma_dir = tmp_path / "gemma"
+    gemma_dir.mkdir()
+    (gemma_dir / "config.json").write_text("{}", encoding="utf-8")
+    (gemma_dir / "tokenizer.json").write_text("{}", encoding="utf-8")
+    for name in ("gemma_fp8.safetensors", "connectors.safetensors", "video_vae.safetensors", "audio_vae.safetensors"):
+        (tmp_path / name).write_bytes(b"model")
+
+    with pytest.raises(ValueError, match="--emit-run-script is only supported"):
+        gpu_ready.run(
+            [
+                "--workflow",
+                str(workflow_path),
+                "--audio",
+                str(audio_path),
+                "--frames-dir",
+                str(frames_dir),
+                "--checkpoint-path",
+                str(tmp_path / "checkpoint.safetensors"),
+                "--distilled-lora-path",
+                str(tmp_path / "distilled.safetensors"),
+                "--spatial-upsampler-path",
+                str(tmp_path / "upscaler.safetensors"),
+                "--gemma-root",
+                str(gemma_dir),
+                "--runtime-backend",
+                gpu_runner.RUNTIME_BACKEND_NOTEBOOK_REFERENCED,
+                "--notebook-gemma-fp8-path",
+                str(tmp_path / "gemma_fp8.safetensors"),
+                "--notebook-embeddings-connectors-path",
+                str(tmp_path / "connectors.safetensors"),
+                "--notebook-video-vae-path",
+                str(tmp_path / "video_vae.safetensors"),
+                "--notebook-audio-vae-path",
+                str(tmp_path / "audio_vae.safetensors"),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--emit-run-script",
+                "--overwrite",
+            ]
+        )
+
+
 def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     workflow_path = tmp_path / "workflow.json"
     workflow_path.write_text(

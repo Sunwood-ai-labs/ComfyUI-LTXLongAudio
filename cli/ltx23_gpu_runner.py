@@ -13,7 +13,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from cli.long_audio_core import build_manifest as build_base_manifest
 from cli.long_audio_core import list_frame_images, plan_segments, probe_audio_info, write_manifest
@@ -24,6 +24,9 @@ DEFAULT_WORKFLOW = Path("samples/workflows/LTX_2.3_Image_or_Text_&_Audio_2_Video
 DEFAULT_MANIFEST_NAME = "ltx23_gpu_ready_manifest.json"
 DEFAULT_PIPELINE_MODULE = "ltx_pipelines.a2vid_two_stage"
 DEFAULT_OUTPUT_PREFIX = "LTX-2.3-longaudio-randomimg"
+RUNTIME_BACKEND_OFFICIAL = "official-python"
+RUNTIME_BACKEND_NOTEBOOK_REFERENCED = "notebook-referenced-python"
+DEFAULT_RUNTIME_BACKEND = RUNTIME_BACKEND_OFFICIAL
 DEFAULT_DISTILLED_LORA_STRENGTH = 0.6
 DEFAULT_VIDEO_GUIDANCE_SCALE = 3.5
 DEFAULT_NEGATIVE_PROMPT = (
@@ -79,6 +82,7 @@ class LTX23WorkflowDefaults:
 
 @dataclass(frozen=True)
 class LTX23RuntimeConfig:
+    runtime_backend: str = DEFAULT_RUNTIME_BACKEND
     pipeline_module: str = DEFAULT_PIPELINE_MODULE
     python_executable: str = "python"
     ltx_repo_root: Path | None = None
@@ -87,6 +91,14 @@ class LTX23RuntimeConfig:
     distilled_lora_strength: float = DEFAULT_DISTILLED_LORA_STRENGTH
     spatial_upsampler_path: Path | None = None
     gemma_root: Path | None = None
+    notebook_gemma_fp8_path: Path | None = None
+    notebook_embeddings_connectors_path: Path | None = None
+    notebook_video_vae_path: Path | None = None
+    notebook_audio_vae_path: Path | None = None
+    notebook_unet_gguf_path: Path | None = None
+    notebook_mmproj_gguf_path: Path | None = None
+    notebook_melband_path: Path | None = None
+    notebook_tae_vae_path: Path | None = None
     output_dir: Path = Path(".")
     num_inference_steps: int | None = None
     image_strength: float = 1.0
@@ -172,6 +184,9 @@ class LtxInProcessRuntime:
     tiling_config_class: Any
     get_video_chunks_number: Any
     encode_video: Any
+    pipeline_extra_kwargs_factory: Any = None
+    prompt_encoder_extra_kwargs_factory: Any = None
+    backend_name: str = RUNTIME_BACKEND_OFFICIAL
 
 
 @dataclass
@@ -378,6 +393,23 @@ def _optional_path(raw: str | Path | None) -> Path | None:
     return Path(raw).expanduser().resolve()
 
 
+def _path_text(value: Path | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _notebook_referenced_assets(config: LTX23RuntimeConfig) -> dict[str, str | None]:
+    return {
+        "gemma_fp8_path": _path_text(config.notebook_gemma_fp8_path),
+        "embeddings_connectors_path": _path_text(config.notebook_embeddings_connectors_path),
+        "video_vae_path": _path_text(config.notebook_video_vae_path),
+        "audio_vae_path": _path_text(config.notebook_audio_vae_path),
+        "unet_gguf_path": _path_text(config.notebook_unet_gguf_path),
+        "mmproj_gguf_path": _path_text(config.notebook_mmproj_gguf_path),
+        "melband_path": _path_text(config.notebook_melband_path),
+        "tae_vae_path": _path_text(config.notebook_tae_vae_path),
+    }
+
+
 def _prepend_pythonpath(path: Path) -> None:
     resolved = str(path.expanduser().resolve())
     if resolved not in sys.path:
@@ -395,7 +427,10 @@ def _add_ltx_repo_src_paths(ltx_repo_root: Path | None) -> None:
             _prepend_pythonpath(src_dir)
 
 
-def _load_ltx_inference_runtime(ltx_repo_root: Path | None) -> LtxInProcessRuntime:
+def _load_ltx_inference_runtime(
+    ltx_repo_root: Path | None,
+    runtime_backend: str = DEFAULT_RUNTIME_BACKEND,
+) -> LtxInProcessRuntime:
     try:
         args_module = importlib.import_module("ltx_pipelines.utils.args")
         pipeline_module = importlib.import_module("ltx_pipelines.a2vid_two_stage")
@@ -420,6 +455,7 @@ def _load_ltx_inference_runtime(ltx_repo_root: Path | None) -> LtxInProcessRunti
                 f"ltx_repo_root={root_text}"
             ) from nested_exc
     return LtxInProcessRuntime(
+        backend_name=runtime_backend,
         parser_factory=args_module.default_2_stage_arg_parser,
         pipeline_class=pipeline_module.A2VidPipelineTwoStage,
         prompt_encoder_class=blocks_module.PromptEncoder,
@@ -1051,20 +1087,26 @@ class _PromptEncoderOutputDeviceAdapter:
     def __init__(
         self,
         *,
-        prompt_encoder_class: Any,
-        checkpoint_path: str,
-        gemma_root: str,
+        prompt_encoder_class: Any | None = None,
+        checkpoint_path: str | None = None,
+        gemma_root: str | None = None,
         dtype: Any,
         model_device: Any,
         output_device: Any,
+        prompt_encoder_factory: Callable[[Any], Any] | None = None,
         streaming_prefetch_count_override: int | None = None,
     ) -> None:
-        self._inner = prompt_encoder_class(
-            checkpoint_path=checkpoint_path,
-            gemma_root=gemma_root,
-            dtype=dtype,
-            device=model_device,
-        )
+        if prompt_encoder_factory is not None:
+            self._inner = prompt_encoder_factory(model_device)
+        else:
+            if prompt_encoder_class is None or checkpoint_path is None or gemma_root is None:
+                raise ValueError("Prompt encoder adapter needs either a factory or the official class inputs.")
+            self._inner = prompt_encoder_class(
+                checkpoint_path=checkpoint_path,
+                gemma_root=gemma_root,
+                dtype=dtype,
+                device=model_device,
+            )
         self._output_device = output_device
         self._disable_streaming = str(model_device).startswith("cpu")
         self._streaming_prefetch_count_override = streaming_prefetch_count_override
@@ -1277,33 +1319,84 @@ def _build_in_process_pipeline(
     if debug_logger is not None:
         debug_logger.event(
             "pipeline_build_start",
+            runtime_backend=config.runtime_backend,
             checkpoint_path=namespace.checkpoint_path,
             gemma_root=namespace.gemma_root,
             quantization=getattr(namespace, "quantization", None),
             compile=bool(getattr(namespace, "compile", False)),
+            notebook_referenced_assets=(
+                _notebook_referenced_assets(config)
+                if config.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+                else None
+            ),
         )
-    pipeline = runtime.pipeline_class(
-        checkpoint_path=namespace.checkpoint_path,
-        distilled_lora=namespace.distilled_lora,
-        spatial_upsampler_path=namespace.spatial_upsampler_path,
-        gemma_root=namespace.gemma_root,
-        loras=tuple(namespace.lora) if getattr(namespace, "lora", None) else (),
-        quantization=getattr(namespace, "quantization", None),
-        torch_compile=bool(getattr(namespace, "compile", False)),
-    )
-    prompt_encoder_device = _resolve_torch_device(config.prompt_encoder_device, getattr(pipeline, "device", None))
-    pipeline_device = getattr(pipeline, "device", prompt_encoder_device)
+    prompt_encoder_factory: Callable[[Any], Any] | None = None
+    if config.runtime_backend == RUNTIME_BACKEND_OFFICIAL:
+        pipeline = runtime.pipeline_class(
+            checkpoint_path=namespace.checkpoint_path,
+            distilled_lora=namespace.distilled_lora,
+            spatial_upsampler_path=namespace.spatial_upsampler_path,
+            gemma_root=namespace.gemma_root,
+            loras=tuple(namespace.lora) if getattr(namespace, "lora", None) else (),
+            quantization=getattr(namespace, "quantization", None),
+            torch_compile=bool(getattr(namespace, "compile", False)),
+        )
+    elif config.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED:
+        if (
+            config.notebook_gemma_fp8_path is None
+            or config.notebook_embeddings_connectors_path is None
+            or config.notebook_video_vae_path is None
+            or config.notebook_audio_vae_path is None
+        ):
+            raise ValueError("Notebook-referenced backend requires split asset paths before pipeline build.")
+        notebook_backend = importlib.import_module("cli.ltx23_split_assets_backend")
+        pipeline = notebook_backend.build_notebook_referenced_pipeline(
+            checkpoint_path=namespace.checkpoint_path,
+            distilled_lora=namespace.distilled_lora,
+            spatial_upsampler_path=namespace.spatial_upsampler_path,
+            gemma_root=namespace.gemma_root,
+            gemma_text_encoder_path=str(config.notebook_gemma_fp8_path),
+            embeddings_connectors_path=str(config.notebook_embeddings_connectors_path),
+            video_vae_path=str(config.notebook_video_vae_path),
+            audio_vae_path=str(config.notebook_audio_vae_path),
+            loras=tuple(namespace.lora) if getattr(namespace, "lora", None) else (),
+            quantization=getattr(namespace, "quantization", None),
+            torch_compile=bool(getattr(namespace, "compile", False)),
+        )
+
+        def prompt_encoder_factory(model_device: Any) -> Any:
+            return notebook_backend.NotebookReferencedPromptEncoder(
+                checkpoint_path=namespace.checkpoint_path,
+                gemma_root=namespace.gemma_root,
+                gemma_text_encoder_path=str(config.notebook_gemma_fp8_path),
+                embeddings_connectors_path=str(config.notebook_embeddings_connectors_path),
+                dtype=getattr(pipeline, "dtype", None),
+                device=model_device,
+            )
+
+    else:
+        raise ValueError(f"Unsupported runtime backend: {config.runtime_backend}")
+    pipeline_device = getattr(pipeline, "device", None)
+    prompt_encoder_device = _resolve_torch_device(config.prompt_encoder_device, pipeline_device)
     prompt_streaming_override = config.prompt_streaming_prefetch_count
     if prompt_encoder_device != pipeline_device or prompt_streaming_override is not None:
-        pipeline.prompt_encoder = _PromptEncoderOutputDeviceAdapter(
-            prompt_encoder_class=runtime.prompt_encoder_class,
-            checkpoint_path=namespace.checkpoint_path,
-            gemma_root=namespace.gemma_root,
-            dtype=getattr(pipeline, "dtype", None),
-            model_device=prompt_encoder_device,
-            output_device=pipeline_device,
-            streaming_prefetch_count_override=prompt_streaming_override,
-        )
+        adapter_kwargs: dict[str, Any] = {
+            "dtype": getattr(pipeline, "dtype", None),
+            "model_device": prompt_encoder_device,
+            "output_device": pipeline_device,
+            "streaming_prefetch_count_override": prompt_streaming_override,
+        }
+        if prompt_encoder_factory is not None:
+            adapter_kwargs["prompt_encoder_factory"] = prompt_encoder_factory
+        else:
+            adapter_kwargs.update(
+                {
+                    "prompt_encoder_class": runtime.prompt_encoder_class,
+                    "checkpoint_path": namespace.checkpoint_path,
+                    "gemma_root": namespace.gemma_root,
+                }
+            )
+        pipeline.prompt_encoder = _PromptEncoderOutputDeviceAdapter(**adapter_kwargs)
     _instrument_pipeline_phases(
         pipeline,
         debug_logger=debug_logger,
@@ -1441,6 +1534,7 @@ def _run_segments_in_process(
 
 def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23RuntimeConfig:
     return LTX23RuntimeConfig(
+        runtime_backend=str(args.runtime_backend),
         pipeline_module=args.pipeline_module,
         python_executable=args.ltx_python,
         ltx_repo_root=_optional_path(args.ltx_repo_root),
@@ -1449,6 +1543,14 @@ def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23Ru
         distilled_lora_strength=float(args.distilled_lora_strength),
         spatial_upsampler_path=_optional_path(args.spatial_upsampler_path),
         gemma_root=_optional_path(args.gemma_root),
+        notebook_gemma_fp8_path=_optional_path(args.notebook_gemma_fp8_path),
+        notebook_embeddings_connectors_path=_optional_path(args.notebook_embeddings_connectors_path),
+        notebook_video_vae_path=_optional_path(args.notebook_video_vae_path),
+        notebook_audio_vae_path=_optional_path(args.notebook_audio_vae_path),
+        notebook_unet_gguf_path=_optional_path(args.notebook_unet_gguf_path),
+        notebook_mmproj_gguf_path=_optional_path(args.notebook_mmproj_gguf_path),
+        notebook_melband_path=_optional_path(args.notebook_melband_path),
+        notebook_tae_vae_path=_optional_path(args.notebook_tae_vae_path),
         output_dir=output_dir,
         num_inference_steps=args.num_inference_steps,
         image_strength=float(args.image_strength),
@@ -1474,6 +1576,12 @@ def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23Ru
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Prepare and optionally run official LTX-2.3 segment inference for the Origin workflow."
+    )
+    parser.add_argument(
+        "--runtime-backend",
+        choices=(RUNTIME_BACKEND_OFFICIAL, RUNTIME_BACKEND_NOTEBOOK_REFERENCED),
+        default=os.environ.get("LTX23_RUNTIME_BACKEND", DEFAULT_RUNTIME_BACKEND),
+        help="official-python uses the stock ltx_pipelines asset layout; notebook-referenced-python swaps in notebook split assets while staying inside Python packages.",
     )
     parser.add_argument("--workflow", type=Path, default=DEFAULT_WORKFLOW)
     parser.add_argument("--audio", type=Path, default=None)
@@ -1508,6 +1616,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--spatial-upsampler-path", default=os.environ.get("LTX2_SPATIAL_UPSAMPLER_PATH"))
     parser.add_argument("--gemma-root", default=os.environ.get("LTX2_GEMMA_ROOT"))
+    parser.add_argument("--notebook-gemma-fp8-path", default=os.environ.get("LTX23_NOTEBOOK_GEMMA_FP8_PATH"))
+    parser.add_argument(
+        "--notebook-embeddings-connectors-path",
+        default=os.environ.get("LTX23_NOTEBOOK_EMBEDDINGS_CONNECTORS_PATH"),
+    )
+    parser.add_argument("--notebook-video-vae-path", default=os.environ.get("LTX23_NOTEBOOK_VIDEO_VAE_PATH"))
+    parser.add_argument("--notebook-audio-vae-path", default=os.environ.get("LTX23_NOTEBOOK_AUDIO_VAE_PATH"))
+    parser.add_argument("--notebook-unet-gguf-path", default=os.environ.get("LTX23_NOTEBOOK_UNET_GGUF_PATH"))
+    parser.add_argument("--notebook-mmproj-gguf-path", default=os.environ.get("LTX23_NOTEBOOK_MMPROJ_GGUF_PATH"))
+    parser.add_argument("--notebook-melband-path", default=os.environ.get("LTX23_NOTEBOOK_MELBAND_PATH"))
+    parser.add_argument("--notebook-tae-vae-path", default=os.environ.get("LTX23_NOTEBOOK_TAE_VAE_PATH"))
     parser.add_argument("--num-inference-steps", type=int, default=None)
     parser.add_argument("--quantization", nargs="+", default=None)
     parser.add_argument("--enhance-prompt", action="store_true")
@@ -1582,6 +1701,7 @@ def run(argv: list[str] | None = None) -> int:
     )
     debug_logger.event(
         "run_start",
+        runtime_backend=runtime.runtime_backend,
         workflow_path=defaults.workflow_path,
         audio_path=audio_path,
         conditioning_audio=conditioning_audio,
@@ -1600,9 +1720,20 @@ def run(argv: list[str] | None = None) -> int:
         prompt_streaming_prefetch_count=runtime.prompt_streaming_prefetch_count,
         max_batch_size=runtime.max_batch_size,
         compile_transformer=runtime.compile_transformer,
+        notebook_referenced_assets=(
+            _notebook_referenced_assets(runtime)
+            if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+            else None
+        ),
     )
     if runtime.run_commands or runtime.emit_run_script:
+        if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED and runtime.emit_run_script:
+            raise ValueError(
+                "--emit-run-script is only supported for the official backend right now. "
+                "Use --run for notebook-referenced-python execution."
+            )
         runtime = LTX23RuntimeConfig(
+            runtime_backend=runtime.runtime_backend,
             pipeline_module=runtime.pipeline_module,
             python_executable=runtime.python_executable,
             ltx_repo_root=runtime.ltx_repo_root,
@@ -1611,6 +1742,35 @@ def run(argv: list[str] | None = None) -> int:
             distilled_lora_strength=runtime.distilled_lora_strength,
             spatial_upsampler_path=Path(_required_path(runtime.spatial_upsampler_path, "LTX2_SPATIAL_UPSAMPLER_PATH")),
             gemma_root=Path(_required_gemma_root(runtime.gemma_root, "LTX2_GEMMA_ROOT")),
+            notebook_gemma_fp8_path=(
+                Path(_required_path(runtime.notebook_gemma_fp8_path, "LTX23_NOTEBOOK_GEMMA_FP8_PATH"))
+                if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+                else runtime.notebook_gemma_fp8_path
+            ),
+            notebook_embeddings_connectors_path=(
+                Path(
+                    _required_path(
+                        runtime.notebook_embeddings_connectors_path,
+                        "LTX23_NOTEBOOK_EMBEDDINGS_CONNECTORS_PATH",
+                    )
+                )
+                if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+                else runtime.notebook_embeddings_connectors_path
+            ),
+            notebook_video_vae_path=(
+                Path(_required_path(runtime.notebook_video_vae_path, "LTX23_NOTEBOOK_VIDEO_VAE_PATH"))
+                if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+                else runtime.notebook_video_vae_path
+            ),
+            notebook_audio_vae_path=(
+                Path(_required_path(runtime.notebook_audio_vae_path, "LTX23_NOTEBOOK_AUDIO_VAE_PATH"))
+                if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+                else runtime.notebook_audio_vae_path
+            ),
+            notebook_unet_gguf_path=runtime.notebook_unet_gguf_path,
+            notebook_mmproj_gguf_path=runtime.notebook_mmproj_gguf_path,
+            notebook_melband_path=runtime.notebook_melband_path,
+            notebook_tae_vae_path=runtime.notebook_tae_vae_path,
             output_dir=runtime.output_dir,
             num_inference_steps=runtime.num_inference_steps,
             image_strength=runtime.image_strength,
@@ -1676,6 +1836,7 @@ def run(argv: list[str] | None = None) -> int:
         debug_logger.event(
             "runtime_loaded",
             seconds=round(time.perf_counter() - runtime_load_started, 3),
+            runtime_backend=runtime.runtime_backend,
             repo_root=runtime.ltx_repo_root,
             pipeline_module=runtime.pipeline_module,
         )
@@ -1748,7 +1909,12 @@ def run(argv: list[str] | None = None) -> int:
     manifest["ltx_seed_base"] = ltx_seed_base
     manifest["distilled_lora_strength"] = runtime.distilled_lora_strength
     manifest["pipeline_module"] = runtime.pipeline_module
-    manifest["runtime_backend"] = "official-python"
+    manifest["runtime_backend"] = runtime.runtime_backend
+    manifest["notebook_referenced_assets"] = (
+        _notebook_referenced_assets(runtime)
+        if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+        else None
+    )
     manifest["prompt_encoder_device"] = runtime.prompt_encoder_device
     manifest["performance_profile"] = runtime.performance_profile
     manifest["streaming_prefetch_count"] = runtime.streaming_prefetch_count
@@ -1765,7 +1931,11 @@ def run(argv: list[str] | None = None) -> int:
     manifest["debug_log"] = str(runtime.debug_log_path) if runtime.debug_log_path is not None else None
     manifest["timings"] = _build_timing_summary(debug_logger.events)
     manifest["notes"] = [
-        "Backend target: official LTX-2 a2vid two-stage pipeline in-process.",
+        (
+            "Backend target: official LTX-2 a2vid two-stage pipeline in-process."
+            if runtime.runtime_backend == RUNTIME_BACKEND_OFFICIAL
+            else "Backend target: notebook-referenced split-asset pipeline in-process."
+        ),
         f"Default distilled LoRA strength follows the saved Origin workflow: {runtime.distilled_lora_strength}.",
         "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
         "Final mux always restores the original source audio after segment video concatenation.",
@@ -1777,6 +1947,14 @@ def run(argv: list[str] | None = None) -> int:
         "Use --debug to emit step-by-step progress plus a JSONL debug log.",
         "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
     ]
+    if runtime.runtime_backend == RUNTIME_BACKEND_NOTEBOOK_REFERENCED:
+        manifest["notes"].extend(
+            [
+                "Notebook-referenced backend swaps in the notebook Gemma fp8, connectors, split video VAE, split audio VAE, and x2 upscaler while keeping execution in Python packages.",
+                "The current notebook-referenced backend still relies on the official transformer checkpoint path for diffusion stages.",
+                "Recorded-only notebook assets such as UNet GGUF, mmproj GGUF, MelBand, and TAE are not executed by this backend yet.",
+            ]
+        )
     manifest_path = write_manifest(manifest, output_dir / args.manifest_name)
     debug_logger.event("manifest_written", manifest_path=manifest_path, final_video=final_video_path)
 
@@ -1785,6 +1963,7 @@ def run(argv: list[str] | None = None) -> int:
     print(f"Conditioning audio: {Path(conditioning_audio).resolve()}")
     print(f"Frames: {Path(frames_dir).resolve()}")
     print(f"Segments planned: {len(segment_commands)}")
+    print(f"Runtime backend: {runtime.runtime_backend}")
     print(
         "Runtime tuning: "
         f"profile={runtime.performance_profile}, "

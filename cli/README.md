@@ -13,6 +13,7 @@ Current scope:
 - prepare GPU-ready LTX-2.3 segment commands for the official `ltx_pipelines` runtime
 - emit a runnable `run_segments.sh` handoff script for GPU instances
 - optionally run official LTX-2.3 inference in-process from one Python runner and restore the original full-length audio in the final mux
+- optionally run a notebook-referenced pure Python backend that swaps in split Gemma/connectors/VAE assets without importing ComfyUI
 - optionally split prompt encoding onto CPU while keeping the diffusion stages on GPU for low-VRAM runs
 - write a manifest that records selected images, segment timings, and command previews
 
@@ -84,6 +85,29 @@ That profile downloads the notebook-aligned files:
 - `taeltx2_3.safetensors`
 
 The notebook profile writes the stage-2 upscaler under `latent_upscale_models/` and exports `LTX23_NOTEBOOK_DISTILLED_LORA_STRENGTH=0.6`, matching the saved Origin workflow.
+
+To run the notebook-referenced backend without invoking ComfyUI, keep the official transformer checkpoint and Gemma support root, then add the notebook split assets:
+
+```bash
+uv run python cli/ltx23_gpu_ready.py \
+  --runtime-backend notebook-referenced-python \
+  --audio /path/to/song.mp3 \
+  --frames-dir /path/to/frames \
+  --checkpoint-path /workspace/models/ltx23_official/checkpoints/ltx-2.3-22b-dev.safetensors \
+  --distilled-lora-path /workspace/models/ltx23_notebook/loras/ltx-2.3-22b-distilled-lora-384.safetensors \
+  --spatial-upsampler-path /workspace/models/ltx23_notebook/latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.0.safetensors \
+  --gemma-root /workspace/models/ltx23_official/gemma \
+  --notebook-gemma-fp8-path /workspace/models/ltx23_notebook/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors \
+  --notebook-embeddings-connectors-path /workspace/models/ltx23_notebook/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors \
+  --notebook-video-vae-path /workspace/models/ltx23_notebook/vae/ltx-2.3-22b-dev_video_vae.safetensors \
+  --notebook-audio-vae-path /workspace/models/ltx23_notebook/vae/ltx-2.3-22b-dev_audio_vae.safetensors \
+  --ltx-repo-root /workspace/LTX-2 \
+  --output-dir /workspace/ltx23-notebook-run \
+  --run \
+  --overwrite
+```
+
+This backend stays inside Python packages, does not import `comfy`, and records the split asset paths in the manifest. Today it still uses the official transformer checkpoint for the diffusion stages. The downloaded notebook-only assets `ltx-2.3-22b-dev-Q4_K_M.gguf`, `mmproj-BF16.gguf`, `MelBandRoformer_fp16.safetensors`, and `taeltx2_3.safetensors` are tracked in the manifest for reference but are not executed by this backend yet.
 
 When `--run` is enabled, `ltx23_gpu_ready.py` now executes the official LTX pipeline in-process instead of spawning one Python subprocess per segment. The current interpreter must be able to import the official `ltx_pipelines` packages. On GPU boxes that usually means running this CLI from the LTX-2 environment and pointing `--ltx-repo-root` at the cloned official repository.
 
@@ -189,11 +213,12 @@ Notes:
 
 - `ltx23_gpu_ready.py` normalizes width and height down to multiples of 64 for the official two-stage backend.
 - `--run` keeps the official LTX pipeline inside one Python process. `--emit-run-script` remains available as a legacy handoff/debug path and still writes one command per segment.
+- `--runtime-backend official-python` keeps the stock `ltx_pipelines` asset wiring. `--runtime-backend notebook-referenced-python` swaps in notebook split assets while staying ComfyUI-free.
+- `--emit-run-script` is only supported for `official-python` right now.
 - `--emit-run-script` and `--run` both require real model asset paths; prepare-only without those flags can still emit a preview manifest.
 - When `--conditioning-audio` is provided, segment commands condition on that file while the final mux still restores the original `--audio`.
 - When `--run` or `--emit-run-script` is used, segment conditioning audio is prepared per chunk as stereo WAV under `conditioning_audio/`.
 - `ltx23_download_models.py` now supports two asset profiles: `official` for the current `ltx_pipelines` runner, and `notebook-comfy` for the notebook / Origin workflow asset closure.
-- `ltx23_gpu_ready.py` still targets the official Python `ltx_pipelines` backend today. Downloading the notebook profile does not mean the runner starts importing ComfyUI.
 - The Gemma snapshot used by the official pipeline is gated on Hugging Face, so `HF_TOKEN` may be required for a full download.
 - `ltx23_download_models.py --skip-gemma` lets you fetch the public assets first and add Gemma later.
 

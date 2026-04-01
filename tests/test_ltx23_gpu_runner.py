@@ -18,6 +18,7 @@ from cli.ltx23_gpu_runner import (
     LTX23RuntimeConfig,
     LTX23WorkflowDefaults,
     Ltx23Assets,
+    RUNTIME_BACKEND_NOTEBOOK_REFERENCED,
     SegmentRenderRequest,
     _build_timing_summary,
     build_segment_command,
@@ -74,6 +75,12 @@ def test_parse_args_uses_workflow_aligned_lora_strength_default():
     args = parse_args([])
 
     assert args.distilled_lora_strength == pytest.approx(DEFAULT_DISTILLED_LORA_STRENGTH)
+
+
+def test_parse_args_defaults_to_official_runtime_backend():
+    args = parse_args([])
+
+    assert args.runtime_backend == "official-python"
 
 
 def test_build_segment_command_omits_image_for_text_to_video():
@@ -259,6 +266,81 @@ def test_main_writes_debug_log_without_running(tmp_path: Path):
     assert manifest["debug_log"] == str(debug_log_path.resolve())
     assert log_events[:2] == ["run_start", "segments_planned"]
     assert "manifest_written" in log_events
+
+
+def test_main_writes_notebook_referenced_manifest_without_running(tmp_path: Path):
+    workflow_path = tmp_path / "workflow.json"
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    audio_path = tmp_path / "demo.wav"
+    output_dir = tmp_path / "gpu_output"
+    notebook_assets = {
+        "gemma": tmp_path / "gemma_fp8.safetensors",
+        "connectors": tmp_path / "connectors.safetensors",
+        "video_vae": tmp_path / "video_vae.safetensors",
+        "audio_vae": tmp_path / "audio_vae.safetensors",
+    }
+
+    (frames_dir / "frame_0.png").write_bytes(b"frame")
+    _write_wave_file(audio_path, frame_rate=8, frame_count=16)
+    for path in notebook_assets.values():
+        path.write_bytes(b"model")
+
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"id": 167, "widgets_values": [str(frames_dir), 0, 0, 1]},
+                    {"id": 285, "widgets_values": [8]},
+                    {"id": 291, "widgets_values": [2]},
+                    {"id": 372, "widgets_values": [str(audio_path), None, None]},
+                    {"id": 399, "widgets_values": [99]},
+                    {"id": 352, "widgets_values": ["fox singer"]},
+                    {"id": 290, "widgets_values": [False]},
+                    {"id": 292, "widgets_values": [832]},
+                    {"id": 293, "widgets_values": [480]},
+                    {"id": 140, "widgets_values": [24, 0, "demo-output", "video/h264-mp4", "yuv420p", 19, True, True, False, True]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--workflow",
+            str(workflow_path),
+            "--output-dir",
+            str(output_dir),
+            "--overwrite",
+            "--runtime-backend",
+            RUNTIME_BACKEND_NOTEBOOK_REFERENCED,
+            "--notebook-gemma-fp8-path",
+            str(notebook_assets["gemma"]),
+            "--notebook-embeddings-connectors-path",
+            str(notebook_assets["connectors"]),
+            "--notebook-video-vae-path",
+            str(notebook_assets["video_vae"]),
+            "--notebook-audio-vae-path",
+            str(notebook_assets["audio_vae"]),
+        ]
+    )
+
+    manifest = json.loads((output_dir / "ltx23_gpu_ready_manifest.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert manifest["runtime_backend"] == RUNTIME_BACKEND_NOTEBOOK_REFERENCED
+    assert manifest["notebook_referenced_assets"] == {
+        "gemma_fp8_path": str(notebook_assets["gemma"].resolve()),
+        "embeddings_connectors_path": str(notebook_assets["connectors"].resolve()),
+        "video_vae_path": str(notebook_assets["video_vae"].resolve()),
+        "audio_vae_path": str(notebook_assets["audio_vae"].resolve()),
+        "unet_gguf_path": None,
+        "mmproj_gguf_path": None,
+        "melband_path": None,
+        "tae_vae_path": None,
+    }
+    assert any("notebook-referenced split-asset pipeline" in note for note in manifest["notes"])
 
 
 def test_mux_original_audio_trims_to_source_duration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -456,6 +538,79 @@ def test_build_in_process_pipeline_can_override_prompt_streaming(monkeypatch: py
     assert isinstance(pipeline.prompt_encoder, gpu_runner._PromptEncoderOutputDeviceAdapter)
     assert outputs[0].video_encoding == "video@cuda:0"
     assert call_kwargs == [{"streaming_prefetch_count": 1}]
+
+
+def test_build_in_process_pipeline_supports_notebook_referenced_backend(monkeypatch: pytest.MonkeyPatch):
+    build_calls: list[dict[str, object]] = []
+
+    class DummyPipeline:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+            self.device = "cuda:0"
+            self.dtype = "float32"
+            self._prompt_encoder_device = "cpu"
+            self.prompt_encoder = "custom-prompt-encoder"
+
+    fake_notebook_backend = SimpleNamespace(
+        build_pipeline=lambda **kwargs: build_calls.append(dict(kwargs)) or DummyPipeline(**kwargs),
+    )
+
+    original_import_module = gpu_runner.importlib.import_module
+
+    def fake_import_module(name: str):  # type: ignore[no-untyped-def]
+        if name == "cli.ltx23_notebook_reference_backend":
+            return fake_notebook_backend
+        return original_import_module(name)
+
+    monkeypatch.setattr(gpu_runner.importlib, "import_module", fake_import_module)
+
+    runtime = gpu_runner.LtxInProcessRuntime(
+        parser_factory=lambda: None,
+        pipeline_class=DummyPipeline,
+        prompt_encoder_class=lambda **kwargs: None,
+        multi_modal_guider_params=lambda **kwargs: kwargs,
+        tiling_config_class=SimpleNamespace(default=lambda: None),
+        get_video_chunks_number=lambda num_frames, tiling_config: 1,
+        encode_video=lambda **kwargs: None,
+    )
+    namespace = SimpleNamespace(
+        checkpoint_path="/weights/checkpoint.safetensors",
+        distilled_lora=(),
+        spatial_upsampler_path="/weights/upscaler.safetensors",
+        gemma_root="/weights/gemma",
+        lora=(),
+        quantization=None,
+        compile=False,
+    )
+    config = LTX23RuntimeConfig(
+        runtime_backend=RUNTIME_BACKEND_NOTEBOOK_REFERENCED,
+        notebook_gemma_fp8_path=Path("/weights/gemma_fp8.safetensors"),
+        notebook_embeddings_connectors_path=Path("/weights/connectors.safetensors"),
+        notebook_video_vae_path=Path("/weights/video_vae.safetensors"),
+        notebook_audio_vae_path=Path("/weights/audio_vae.safetensors"),
+        prompt_streaming_prefetch_count=1,
+    )
+
+    pipeline = gpu_runner._build_in_process_pipeline(runtime, namespace, config)
+
+    assert build_calls == [
+        {
+            "checkpoint_path": "/weights/checkpoint.safetensors",
+            "distilled_lora": (),
+            "spatial_upsampler_path": "/weights/upscaler.safetensors",
+            "text_encoder_path": str(Path("/weights/gemma_fp8.safetensors")),
+            "embeddings_connectors_path": str(Path("/weights/connectors.safetensors")),
+            "video_vae_path": str(Path("/weights/video_vae.safetensors")),
+            "audio_vae_path": str(Path("/weights/audio_vae.safetensors")),
+            "tokenizer_root": "/weights/gemma",
+            "loras": (),
+            "quantization": None,
+            "torch_compile": False,
+            "prompt_encoder_device": "match",
+            "prompt_streaming_prefetch_count": 1,
+        }
+    ]
+    assert pipeline.prompt_encoder == "custom-prompt-encoder"
 
 
 def test_build_in_process_pipeline_emits_phase_level_debug_events(tmp_path: Path) -> None:
