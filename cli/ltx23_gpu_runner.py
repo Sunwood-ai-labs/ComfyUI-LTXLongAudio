@@ -736,6 +736,24 @@ def _segment_command_cli_args(command: Sequence[str]) -> list[str]:
 
 def _parse_official_segment_args(runtime: LtxInProcessRuntime, command: Sequence[str]) -> Any:
     parser = runtime.parser_factory()
+    parser.add_argument(
+        "--audio-path",
+        type=str,
+        required=True,
+        help="Path to the audio file to condition the video generation.",
+    )
+    parser.add_argument(
+        "--audio-start-time",
+        type=float,
+        default=0.0,
+        help="Start time in seconds to read audio from (default: 0.0).",
+    )
+    parser.add_argument(
+        "--audio-max-duration",
+        type=float,
+        default=None,
+        help="Maximum audio duration in seconds. Defaults to video duration (num_frames / frame_rate).",
+    )
     try:
         return parser.parse_args(_segment_command_cli_args(command))
     except SystemExit as exc:  # pragma: no cover - argparse prints its own diagnostics

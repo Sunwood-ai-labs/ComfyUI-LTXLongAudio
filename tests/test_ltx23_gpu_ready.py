@@ -422,6 +422,9 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
     encoded_outputs: list[Path] = []
 
     class FakeParser:
+        def add_argument(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            return None
+
         def parse_args(self, args: list[str]) -> SimpleNamespace:
             values = list(args)
 
