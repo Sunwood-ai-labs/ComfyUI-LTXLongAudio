@@ -1330,7 +1330,6 @@ def _build_in_process_pipeline(
                 else None
             ),
         )
-    prompt_encoder_factory: Callable[[Any], Any] | None = None
     if config.runtime_backend == RUNTIME_BACKEND_OFFICIAL:
         pipeline = runtime.pipeline_class(
             checkpoint_path=namespace.checkpoint_path,
@@ -1349,54 +1348,40 @@ def _build_in_process_pipeline(
             or config.notebook_audio_vae_path is None
         ):
             raise ValueError("Notebook-referenced backend requires split asset paths before pipeline build.")
-        notebook_backend = importlib.import_module("cli.ltx23_split_assets_backend")
-        pipeline = notebook_backend.build_notebook_referenced_pipeline(
+        notebook_backend = importlib.import_module("cli.ltx23_notebook_reference_backend")
+        pipeline = notebook_backend.build_pipeline(
             checkpoint_path=namespace.checkpoint_path,
             distilled_lora=namespace.distilled_lora,
             spatial_upsampler_path=namespace.spatial_upsampler_path,
-            gemma_root=namespace.gemma_root,
-            gemma_text_encoder_path=str(config.notebook_gemma_fp8_path),
+            text_encoder_path=str(config.notebook_gemma_fp8_path),
             embeddings_connectors_path=str(config.notebook_embeddings_connectors_path),
             video_vae_path=str(config.notebook_video_vae_path),
             audio_vae_path=str(config.notebook_audio_vae_path),
+            tokenizer_root=namespace.gemma_root,
             loras=tuple(namespace.lora) if getattr(namespace, "lora", None) else (),
             quantization=getattr(namespace, "quantization", None),
             torch_compile=bool(getattr(namespace, "compile", False)),
+            prompt_encoder_device=config.prompt_encoder_device,
+            prompt_streaming_prefetch_count=config.prompt_streaming_prefetch_count,
         )
-
-        def prompt_encoder_factory(model_device: Any) -> Any:
-            return notebook_backend.NotebookReferencedPromptEncoder(
-                checkpoint_path=namespace.checkpoint_path,
-                gemma_root=namespace.gemma_root,
-                gemma_text_encoder_path=str(config.notebook_gemma_fp8_path),
-                embeddings_connectors_path=str(config.notebook_embeddings_connectors_path),
-                dtype=getattr(pipeline, "dtype", None),
-                device=model_device,
-            )
 
     else:
         raise ValueError(f"Unsupported runtime backend: {config.runtime_backend}")
     pipeline_device = getattr(pipeline, "device", None)
-    prompt_encoder_device = _resolve_torch_device(config.prompt_encoder_device, pipeline_device)
     prompt_streaming_override = config.prompt_streaming_prefetch_count
-    if prompt_encoder_device != pipeline_device or prompt_streaming_override is not None:
-        adapter_kwargs: dict[str, Any] = {
-            "dtype": getattr(pipeline, "dtype", None),
-            "model_device": prompt_encoder_device,
-            "output_device": pipeline_device,
-            "streaming_prefetch_count_override": prompt_streaming_override,
-        }
-        if prompt_encoder_factory is not None:
-            adapter_kwargs["prompt_encoder_factory"] = prompt_encoder_factory
-        else:
-            adapter_kwargs.update(
-                {
-                    "prompt_encoder_class": runtime.prompt_encoder_class,
-                    "checkpoint_path": namespace.checkpoint_path,
-                    "gemma_root": namespace.gemma_root,
-                }
+    prompt_encoder_device = getattr(pipeline, "_prompt_encoder_device", None)
+    if prompt_encoder_device is None:
+        prompt_encoder_device = _resolve_torch_device(config.prompt_encoder_device, pipeline_device)
+        if prompt_encoder_device != pipeline_device or prompt_streaming_override is not None:
+            pipeline.prompt_encoder = _PromptEncoderOutputDeviceAdapter(
+                prompt_encoder_class=runtime.prompt_encoder_class,
+                checkpoint_path=namespace.checkpoint_path,
+                gemma_root=namespace.gemma_root,
+                dtype=getattr(pipeline, "dtype", None),
+                model_device=prompt_encoder_device,
+                output_device=pipeline_device,
+                streaming_prefetch_count_override=prompt_streaming_override,
             )
-        pipeline.prompt_encoder = _PromptEncoderOutputDeviceAdapter(**adapter_kwargs)
     _instrument_pipeline_phases(
         pipeline,
         debug_logger=debug_logger,
