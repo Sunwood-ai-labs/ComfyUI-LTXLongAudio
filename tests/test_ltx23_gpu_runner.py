@@ -218,5 +218,8 @@ def test_mux_original_audio_trims_to_source_duration(tmp_path: Path, monkeypatch
     result = gpu_runner._mux_original_audio(video_path, audio_path, output_path, overwrite=True)
 
     assert result == output_path
-    assert "-t" in captured
-    assert captured[captured.index("-t") + 1] == "12.300000"
+    assert "-vf" in captured
+    assert captured[captured.index("-vf") + 1] == "trim=duration=12.300000,setpts=PTS-STARTPTS"
+    assert "-af" in captured
+    assert captured[captured.index("-af") + 1] == "atrim=duration=12.300000,asetpts=PTS-STARTPTS"
+    assert captured[captured.index("-c:v") + 1] == "libx264"
