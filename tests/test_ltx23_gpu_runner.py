@@ -515,3 +515,61 @@ def test_build_in_process_pipeline_emits_phase_level_debug_events(tmp_path: Path
     assert stage_done["width"] == 448
     assert stage_done["max_batch_size"] == 4
     assert "tiling_config" in decoder_start
+
+
+def test_build_in_process_pipeline_applies_stage2_default_batch_size(tmp_path: Path) -> None:
+    stage_2_calls: list[dict[str, object]] = []
+
+    class DummyStage:
+        def __call__(self, **kwargs):  # type: ignore[no-untyped-def]
+            stage_2_calls.append(dict(kwargs))
+            return ("video", "audio")
+
+    class DummyPipeline:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+            self.device = "cpu"
+            self.dtype = "float32"
+            self.prompt_encoder = lambda prompts, **inner_kwargs: [(prompts, inner_kwargs)]
+            self.audio_conditioner = lambda callback: callback("audio-encoder")
+            self.image_conditioner = lambda callback: callback("image-encoder")
+            self.stage_1 = DummyStage()
+            self.upsampler = lambda latent: latent
+            self.stage_2 = DummyStage()
+            self.video_decoder = lambda latent, tiling_config, generator=None: latent
+
+    debug_logger = gpu_runner.RunDebugLogger(enabled=True, log_path=tmp_path / "debug.jsonl", echo=False)
+    runtime = gpu_runner.LtxInProcessRuntime(
+        parser_factory=lambda: None,
+        pipeline_class=DummyPipeline,
+        prompt_encoder_class=lambda **kwargs: None,
+        multi_modal_guider_params=lambda **kwargs: kwargs,
+        tiling_config_class=SimpleNamespace(default=lambda: None),
+        get_video_chunks_number=lambda num_frames, tiling_config: 1,
+        encode_video=lambda **kwargs: None,
+    )
+    namespace = SimpleNamespace(
+        checkpoint_path="/weights/checkpoint.safetensors",
+        distilled_lora=(),
+        spatial_upsampler_path="/weights/upscaler.safetensors",
+        gemma_root="/weights/gemma",
+        lora=(),
+        quantization=None,
+        compile=False,
+        max_batch_size=4,
+    )
+    config = LTX23RuntimeConfig()
+
+    pipeline = gpu_runner._build_in_process_pipeline(runtime, namespace, config, debug_logger)
+    pipeline.stage_2(width=448, height=256, frames=361, fps=24.0, streaming_prefetch_count=1)
+
+    assert stage_2_calls == [
+        {
+            "width": 448,
+            "height": 256,
+            "frames": 361,
+            "fps": 24.0,
+            "streaming_prefetch_count": 1,
+            "max_batch_size": 4,
+        }
+    ]

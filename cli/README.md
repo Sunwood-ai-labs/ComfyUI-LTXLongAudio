@@ -82,6 +82,8 @@ Performance tuning is now first-class instead of hidden behind `--extra-ltx-arg`
 - `--max-batch-size N`: explicit guidance batching control
 - `--compile-transformer`: forwards to the official `--compile` flag
 
+The in-process runner now also forwards the resolved `max_batch_size` into Stage 2. The official CLI path only exposes it on the top-level pipeline call, but the upstream `A2VidPipelineTwoStage` implementation applies it to Stage 1 and forgets it for Stage 2. This runner patches that gap so the same batching hint reaches both denoising stages.
+
 Why this matters on L4: `--streaming-prefetch-count 1` pushes the official PromptEncoder and DiffusionStage into CPU-built layer streaming mode. That saves VRAM, but it can leave GPU utilization very low. For throughput-focused runs on a 24 GB card, start with `--performance-profile throughput --quantization fp8-cast`. If Gemma then OOMs, add `--prompt-streaming-prefetch-count 1` before falling back to full low-VRAM mode.
 
 Example on a GPU instance with the official repo bootstrapped under `/workspace/LTX-2`:

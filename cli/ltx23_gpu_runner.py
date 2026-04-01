@@ -1028,12 +1028,14 @@ class _DebugPhaseCallable:
         device_getter: Callable[[], Any],
         debug_logger: RunDebugLogger,
         metadata_builder: Callable[[tuple[Any, ...], dict[str, Any]], dict[str, Any]] | None = None,
+        default_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self._phase_name = phase_name
         self._inner = inner
         self._device_getter = device_getter
         self._debug_logger = debug_logger
         self._metadata_builder = metadata_builder
+        self._default_kwargs = dict(default_kwargs or {})
         self._call_index = 0
 
     def __getattr__(self, name: str) -> Any:
@@ -1041,6 +1043,11 @@ class _DebugPhaseCallable:
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         self._call_index += 1
+        if self._default_kwargs:
+            kwargs = dict(kwargs)
+            for key, value in self._default_kwargs.items():
+                if kwargs.get(key) is None:
+                    kwargs[key] = value
         device = self._device_getter()
         metadata = {"phase": self._phase_name, "call_index": self._call_index}
         if self._metadata_builder is not None:
@@ -1067,6 +1074,7 @@ def _wrap_pipeline_phase(
     debug_logger: RunDebugLogger | None,
     device_getter: Callable[[], Any],
     metadata_builder: Callable[[tuple[Any, ...], dict[str, Any]], dict[str, Any]] | None = None,
+    default_kwargs: dict[str, Any] | None = None,
 ) -> None:
     if debug_logger is None or not debug_logger.enabled:
         return
@@ -1082,6 +1090,7 @@ def _wrap_pipeline_phase(
             device_getter=device_getter,
             debug_logger=debug_logger,
             metadata_builder=metadata_builder,
+            default_kwargs=default_kwargs,
         ),
     )
 
@@ -1117,6 +1126,7 @@ def _instrument_pipeline_phases(
     *,
     debug_logger: RunDebugLogger | None,
     pipeline_device: Any,
+    stage_2_default_max_batch_size: int | None = None,
 ) -> None:
     if debug_logger is None or not debug_logger.enabled:
         return
@@ -1168,6 +1178,11 @@ def _instrument_pipeline_phases(
         debug_logger=debug_logger,
         device_getter=device_getter,
         metadata_builder=_diffusion_phase_metadata,
+        default_kwargs=(
+            {"max_batch_size": stage_2_default_max_batch_size}
+            if stage_2_default_max_batch_size is not None and stage_2_default_max_batch_size > 1
+            else None
+        ),
     )
     _wrap_pipeline_phase(
         pipeline,
@@ -1220,6 +1235,7 @@ def _build_in_process_pipeline(
         pipeline,
         debug_logger=debug_logger,
         pipeline_device=pipeline_device,
+        stage_2_default_max_batch_size=getattr(namespace, "max_batch_size", None),
     )
     if debug_logger is not None:
         debug_logger.event(
