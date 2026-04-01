@@ -1019,6 +1019,166 @@ class _PromptEncoderOutputDeviceAdapter:
         return moved
 
 
+class _DebugPhaseCallable:
+    def __init__(
+        self,
+        *,
+        phase_name: str,
+        inner: Any,
+        device_getter: Callable[[], Any],
+        debug_logger: RunDebugLogger,
+        metadata_builder: Callable[[tuple[Any, ...], dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
+        self._phase_name = phase_name
+        self._inner = inner
+        self._device_getter = device_getter
+        self._debug_logger = debug_logger
+        self._metadata_builder = metadata_builder
+        self._call_index = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        self._call_index += 1
+        device = self._device_getter()
+        metadata = {"phase": self._phase_name, "call_index": self._call_index}
+        if self._metadata_builder is not None:
+            metadata.update(self._metadata_builder(args, kwargs))
+        self._debug_logger.event("pipeline_phase_start", **metadata, gpu_snapshot=_gpu_snapshot(device))
+        _maybe_torch_cuda_synchronize(device)
+        started = time.perf_counter()
+        result = self._inner(*args, **kwargs)
+        _maybe_torch_cuda_synchronize(device)
+        self._debug_logger.event(
+            "pipeline_phase_done",
+            **metadata,
+            seconds=round(time.perf_counter() - started, 3),
+            gpu_snapshot=_gpu_snapshot(device),
+        )
+        return result
+
+
+def _wrap_pipeline_phase(
+    pipeline: Any,
+    *,
+    attr_name: str,
+    phase_name: str,
+    debug_logger: RunDebugLogger | None,
+    device_getter: Callable[[], Any],
+    metadata_builder: Callable[[tuple[Any, ...], dict[str, Any]], dict[str, Any]] | None = None,
+) -> None:
+    if debug_logger is None or not debug_logger.enabled:
+        return
+    inner = getattr(pipeline, attr_name, None)
+    if inner is None or not callable(inner):
+        return
+    setattr(
+        pipeline,
+        attr_name,
+        _DebugPhaseCallable(
+            phase_name=phase_name,
+            inner=inner,
+            device_getter=device_getter,
+            debug_logger=debug_logger,
+            metadata_builder=metadata_builder,
+        ),
+    )
+
+
+def _prompt_encoder_phase_metadata(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    prompts = args[0] if args else None
+    prompt_count = len(prompts) if isinstance(prompts, list) else None
+    return {
+        "prompt_count": prompt_count,
+        "streaming_prefetch_count": kwargs.get("streaming_prefetch_count"),
+        "enhance_first_prompt": bool(kwargs.get("enhance_first_prompt", False)),
+    }
+
+
+def _diffusion_phase_metadata(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "width": kwargs.get("width"),
+        "height": kwargs.get("height"),
+        "frames": kwargs.get("frames"),
+        "fps": kwargs.get("fps"),
+        "streaming_prefetch_count": kwargs.get("streaming_prefetch_count"),
+        "max_batch_size": kwargs.get("max_batch_size"),
+    }
+
+
+def _video_decoder_phase_metadata(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    tiling_config = args[1] if len(args) > 1 else kwargs.get("tiling_config")
+    return {"tiling_config": tiling_config}
+
+
+def _instrument_pipeline_phases(
+    pipeline: Any,
+    *,
+    debug_logger: RunDebugLogger | None,
+    pipeline_device: Any,
+) -> None:
+    if debug_logger is None or not debug_logger.enabled:
+        return
+
+    def device_getter() -> Any:
+        return getattr(pipeline, "device", pipeline_device)
+
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="prompt_encoder",
+        phase_name="prompt_encoder",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+        metadata_builder=_prompt_encoder_phase_metadata,
+    )
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="audio_conditioner",
+        phase_name="audio_conditioner",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+    )
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="image_conditioner",
+        phase_name="image_conditioner",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+    )
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="stage_1",
+        phase_name="stage_1",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+        metadata_builder=_diffusion_phase_metadata,
+    )
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="upsampler",
+        phase_name="upsampler",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+    )
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="stage_2",
+        phase_name="stage_2",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+        metadata_builder=_diffusion_phase_metadata,
+    )
+    _wrap_pipeline_phase(
+        pipeline,
+        attr_name="video_decoder",
+        phase_name="video_decoder",
+        debug_logger=debug_logger,
+        device_getter=device_getter,
+        metadata_builder=_video_decoder_phase_metadata,
+    )
+
+
 def _build_in_process_pipeline(
     runtime: LtxInProcessRuntime,
     namespace: Any,
@@ -1056,6 +1216,11 @@ def _build_in_process_pipeline(
             output_device=pipeline_device,
             streaming_prefetch_count_override=prompt_streaming_override,
         )
+    _instrument_pipeline_phases(
+        pipeline,
+        debug_logger=debug_logger,
+        pipeline_device=pipeline_device,
+    )
     if debug_logger is not None:
         debug_logger.event(
             "pipeline_build_done",

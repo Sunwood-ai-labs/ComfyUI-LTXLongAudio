@@ -68,6 +68,7 @@ When a run is slow or stalls, add `--debug`. The runner will emit step-by-step p
 
 - runtime import timing
 - pipeline build timing and device placement
+- phase-level timing for `prompt_encoder`, `audio_conditioner`, `image_conditioner`, `stage_1`, `upsampler`, `stage_2`, and `video_decoder`
 - per-segment start / pipeline / encode timing
 - CUDA memory snapshots before and after each segment
 - final concat / mux timing

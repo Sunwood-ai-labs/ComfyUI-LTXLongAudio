@@ -447,3 +447,71 @@ def test_build_in_process_pipeline_can_override_prompt_streaming(monkeypatch: py
     assert isinstance(pipeline.prompt_encoder, gpu_runner._PromptEncoderOutputDeviceAdapter)
     assert outputs[0].video_encoding == "video@cuda:0"
     assert call_kwargs == [{"streaming_prefetch_count": 1}]
+
+
+def test_build_in_process_pipeline_emits_phase_level_debug_events(tmp_path: Path) -> None:
+    debug_log_path = tmp_path / "ltx23_debug.jsonl"
+    debug_logger = gpu_runner.RunDebugLogger(enabled=True, log_path=debug_log_path, echo=False)
+
+    class DummyPromptEncoder:
+        def __call__(self, prompts, **kwargs):  # type: ignore[no-untyped-def]
+            return [(prompts, kwargs)]
+
+    class DummyStage:
+        def __call__(self, **kwargs):  # type: ignore[no-untyped-def]
+            return ("video", "audio")
+
+    class DummyPipeline:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+            self.device = "cpu"
+            self.dtype = "float32"
+            self.prompt_encoder = DummyPromptEncoder()
+            self.audio_conditioner = lambda callback: callback("audio-encoder")
+            self.image_conditioner = lambda callback: callback("image-encoder")
+            self.stage_1 = DummyStage()
+            self.upsampler = lambda latent: latent
+            self.stage_2 = DummyStage()
+            self.video_decoder = lambda latent, tiling_config, generator=None: latent
+
+    runtime = gpu_runner.LtxInProcessRuntime(
+        parser_factory=lambda: None,
+        pipeline_class=DummyPipeline,
+        prompt_encoder_class=DummyPromptEncoder,
+        multi_modal_guider_params=lambda **kwargs: kwargs,
+        tiling_config_class=SimpleNamespace(default=lambda: None),
+        get_video_chunks_number=lambda num_frames, tiling_config: 1,
+        encode_video=lambda **kwargs: None,
+    )
+    namespace = SimpleNamespace(
+        checkpoint_path="/weights/checkpoint.safetensors",
+        distilled_lora=(),
+        spatial_upsampler_path="/weights/upscaler.safetensors",
+        gemma_root="/weights/gemma",
+        lora=(),
+        quantization=None,
+        compile=False,
+    )
+    config = LTX23RuntimeConfig()
+
+    pipeline = gpu_runner._build_in_process_pipeline(runtime, namespace, config, debug_logger)
+
+    pipeline.prompt_encoder(["hello", "world"], streaming_prefetch_count=1)
+    pipeline.stage_1(width=448, height=256, frames=361, fps=24.0, streaming_prefetch_count=1, max_batch_size=4)
+    pipeline.video_decoder("latent", None)
+
+    events = [json.loads(line) for line in debug_log_path.read_text(encoding="utf-8").splitlines() if line]
+    event_names = [item["event"] for item in events]
+
+    assert "pipeline_phase_start" in event_names
+    assert "pipeline_phase_done" in event_names
+
+    prompt_start = next(item for item in events if item["event"] == "pipeline_phase_start" and item["phase"] == "prompt_encoder")
+    stage_done = next(item for item in events if item["event"] == "pipeline_phase_done" and item["phase"] == "stage_1")
+    decoder_start = next(item for item in events if item["event"] == "pipeline_phase_start" and item["phase"] == "video_decoder")
+
+    assert prompt_start["prompt_count"] == 2
+    assert prompt_start["streaming_prefetch_count"] == 1
+    assert stage_done["width"] == 448
+    assert stage_done["max_batch_size"] == 4
+    assert "tiling_config" in decoder_start
