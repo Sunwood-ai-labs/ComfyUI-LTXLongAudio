@@ -420,6 +420,7 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
     init_calls: list[dict[str, object]] = []
     render_calls: list[dict[str, object]] = []
     encoded_outputs: list[Path] = []
+    inference_context_events: list[str] = []
 
     class FakeParser:
         def add_argument(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -486,6 +487,15 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
         path.write_bytes(b"mp4")
         encoded_outputs.append(path)
 
+    class FakeInferenceContext:
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            inference_context_events.append("enter")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+            inference_context_events.append("exit")
+            return False
+
     def fake_prepare_chunks(source_audio, segments, *, fps, output_dir, overwrite):  # type: ignore[no-untyped-def]
         prepared: dict[int, Path] = {}
         for segment in segments:
@@ -504,6 +514,7 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
         return output_path
 
     monkeypatch.setattr(gpu_runner, "_prepare_conditioning_audio_chunks", fake_prepare_chunks)
+    monkeypatch.setattr(gpu_runner, "_torch_inference_context", lambda: FakeInferenceContext())
     monkeypatch.setattr(
         gpu_runner,
         "_load_ltx_inference_runtime",
@@ -548,5 +559,6 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
     assert len(init_calls) == 1
     assert len(render_calls) == 3
     assert len(encoded_outputs) == 3
+    assert inference_context_events == ["enter", "exit"]
     assert Path(manifest["final_video"]).exists()
     assert manifest["notes"][0] == "Backend target: official LTX-2 a2vid two-stage pipeline in-process."

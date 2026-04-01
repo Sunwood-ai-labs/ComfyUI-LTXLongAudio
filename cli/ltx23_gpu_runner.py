@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
 import json
 import os
@@ -760,6 +761,14 @@ def _parse_official_segment_args(runtime: LtxInProcessRuntime, command: Sequence
         raise ValueError(f"Failed to parse official LTX pipeline args from command: {command}") from exc
 
 
+def _torch_inference_context() -> Any:
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        return contextlib.nullcontext()
+    return torch.inference_mode()
+
+
 def _build_video_guider_params(namespace: Any, runtime: LtxInProcessRuntime) -> Any:
     return runtime.multi_modal_guider_params(
         cfg_scale=namespace.video_cfg_guidance_scale,
@@ -832,10 +841,11 @@ def _run_segments_in_process(
     if not segment_commands:
         return []
     parsed_segments = [_parse_official_segment_args(ltx_runtime, segment.command) for segment in segment_commands]
-    pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0])
     rendered: list[Path] = []
-    for namespace in parsed_segments:
-        rendered.append(_render_segment_in_process(pipeline, ltx_runtime, namespace))
+    with _torch_inference_context():
+        pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0])
+        for namespace in parsed_segments:
+            rendered.append(_render_segment_in_process(pipeline, ltx_runtime, namespace))
     return rendered
 
 
