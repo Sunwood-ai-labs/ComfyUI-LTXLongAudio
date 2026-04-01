@@ -228,6 +228,22 @@ def test_mux_original_audio_trims_to_source_duration(tmp_path: Path, monkeypatch
 
 def test_build_in_process_pipeline_can_override_prompt_encoder_device(monkeypatch: pytest.MonkeyPatch):
     init_calls: list[dict[str, object]] = []
+    call_kwargs: list[dict[str, object]] = []
+
+    class FakeTensor:
+        def __init__(self, label: str):
+            self.label = label
+
+        def to(self, device):  # type: ignore[no-untyped-def]
+            return f"{self.label}@{device}"
+
+    class FakeOutput(tuple):
+        def __new__(cls, video_encoding, audio_encoding, attention_mask):  # type: ignore[no-untyped-def]
+            return super().__new__(cls, (video_encoding, audio_encoding, attention_mask))
+
+        video_encoding = property(lambda self: self[0])
+        audio_encoding = property(lambda self: self[1])
+        attention_mask = property(lambda self: self[2])
 
     class FakeTorchModule:
         float32 = "float32"
@@ -248,7 +264,8 @@ def test_build_in_process_pipeline_can_override_prompt_encoder_device(monkeypatc
             )
 
         def __call__(self, prompts, **kwargs):  # type: ignore[no-untyped-def]
-            return prompts, kwargs
+            call_kwargs.append(dict(kwargs))
+            return [FakeOutput(FakeTensor("video"), FakeTensor("audio"), FakeTensor("mask"))]
 
     class DummyPipeline:
         def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
@@ -297,3 +314,8 @@ def test_build_in_process_pipeline_can_override_prompt_encoder_device(monkeypatc
             "device": "cpu",
         }
     ]
+    outputs = pipeline.prompt_encoder(["hello"], streaming_prefetch_count=3)
+    assert outputs[0].video_encoding == "video@cuda:0"
+    assert outputs[0].audio_encoding == "audio@cuda:0"
+    assert outputs[0].attention_mask == "mask@cuda:0"
+    assert call_kwargs == [{"streaming_prefetch_count": None}]

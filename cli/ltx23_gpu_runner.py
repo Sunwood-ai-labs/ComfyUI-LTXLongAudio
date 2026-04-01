@@ -810,8 +810,12 @@ class _PromptEncoderOutputDeviceAdapter:
             device=model_device,
         )
         self._output_device = output_device
+        self._disable_streaming = str(model_device).startswith("cpu")
 
     def __call__(self, prompts: list[str], **kwargs: Any) -> Any:
+        if self._disable_streaming and "streaming_prefetch_count" in kwargs:
+            kwargs = dict(kwargs)
+            kwargs["streaming_prefetch_count"] = None
         outputs = self._inner(prompts, **kwargs)
         if not outputs:
             return outputs
