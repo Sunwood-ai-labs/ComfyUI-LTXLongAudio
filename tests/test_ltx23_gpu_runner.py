@@ -201,6 +201,57 @@ def test_main_writes_gpu_manifest_without_running(tmp_path: Path):
     assert manifest["rendered_segments"] == []
 
 
+def test_main_writes_debug_log_without_running(tmp_path: Path):
+    workflow_path = tmp_path / "workflow.json"
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    audio_path = tmp_path / "demo.wav"
+    output_dir = tmp_path / "gpu_output"
+
+    (frames_dir / "frame_0.png").write_bytes(b"frame")
+    _write_wave_file(audio_path, frame_rate=8, frame_count=16)
+
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"id": 167, "widgets_values": [str(frames_dir), 0, 0, 1]},
+                    {"id": 285, "widgets_values": [8]},
+                    {"id": 291, "widgets_values": [2]},
+                    {"id": 372, "widgets_values": [str(audio_path), None, None]},
+                    {"id": 399, "widgets_values": [99]},
+                    {"id": 352, "widgets_values": ["fox singer"]},
+                    {"id": 290, "widgets_values": [False]},
+                    {"id": 292, "widgets_values": [832]},
+                    {"id": 293, "widgets_values": [480]},
+                    {"id": 140, "widgets_values": [24, 0, "demo-output", "video/h264-mp4", "yuv420p", 19, True, True, False, True]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--workflow",
+            str(workflow_path),
+            "--output-dir",
+            str(output_dir),
+            "--overwrite",
+            "--debug",
+        ]
+    )
+
+    manifest = json.loads((output_dir / "ltx23_gpu_ready_manifest.json").read_text(encoding="utf-8"))
+    debug_log_path = output_dir / "ltx23_debug.jsonl"
+    log_events = [json.loads(line)["event"] for line in debug_log_path.read_text(encoding="utf-8").splitlines() if line]
+
+    assert exit_code == 0
+    assert manifest["debug_log"] == str(debug_log_path.resolve())
+    assert log_events[:2] == ["run_start", "segments_planned"]
+    assert "manifest_written" in log_events
+
+
 def test_mux_original_audio_trims_to_source_duration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     captured: list[str] = []
     video_path = tmp_path / "video.mp4"

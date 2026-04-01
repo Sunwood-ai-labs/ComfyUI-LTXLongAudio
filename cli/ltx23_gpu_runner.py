@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime as dt
 import importlib
 import json
 import os
@@ -9,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -92,6 +94,8 @@ class LTX23RuntimeConfig:
     enhance_prompt: bool = False
     video_cfg_guidance_scale: float | None = DEFAULT_VIDEO_GUIDANCE_SCALE
     prompt_encoder_device: str = "match"
+    debug: bool = False
+    debug_log_path: Path | None = None
     run_commands: bool = False
     emit_run_script: bool = False
     overwrite: bool = False
@@ -160,9 +164,102 @@ class LtxInProcessRuntime:
     encode_video: Any
 
 
+@dataclass
+class RunDebugLogger:
+    enabled: bool = False
+    log_path: Path | None = None
+    echo: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.enabled or self.log_path is None:
+            return
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log_path.write_text("", encoding="utf-8")
+
+    def event(self, name: str, **fields: Any) -> None:
+        if not self.enabled:
+            return
+        payload = {
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "event": name,
+            **{key: _json_safe(value) for key, value in fields.items()},
+        }
+        line = json.dumps(payload, ensure_ascii=True)
+        if self.log_path is not None:
+            with self.log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+                handle.write("\n")
+        if self.echo:
+            summary = ", ".join(f"{key}={payload[key]}" for key in sorted(fields))
+            print(f"[debug] {name}" + (f": {summary}" if summary else ""))
+
+
 def _normalize_dimension(value: int, divisor: int = 64) -> int:
     safe_value = max(int(value), divisor)
     return safe_value - (safe_value % divisor)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+def _resolve_debug_log_path(debug: bool, debug_log: str | Path | None, output_dir: Path) -> Path | None:
+    if debug_log is not None:
+        return Path(debug_log).expanduser().resolve()
+    if debug:
+        return (output_dir / "ltx23_debug.jsonl").resolve()
+    return None
+
+
+def _maybe_torch_cuda_synchronize(device: Any) -> None:
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        return
+    if not getattr(torch.cuda, "is_available", lambda: False)():
+        return
+    device_text = str(device)
+    if not device_text.startswith("cuda"):
+        return
+    with contextlib.suppress(Exception):
+        torch.cuda.synchronize(device)
+
+
+def _gpu_snapshot(device: Any) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"requested_device": str(device)}
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        snapshot["torch"] = "unavailable"
+        return snapshot
+    snapshot["cuda_available"] = bool(getattr(torch.cuda, "is_available", lambda: False)())
+    if not snapshot["cuda_available"]:
+        return snapshot
+    device_text = str(device)
+    if not device_text.startswith("cuda"):
+        return snapshot
+    try:
+        torch_device = torch.device(device_text)
+        index = torch_device.index if torch_device.index is not None else torch.cuda.current_device()
+        snapshot["device_name"] = torch.cuda.get_device_name(index)
+        snapshot["memory_allocated_mib"] = round(torch.cuda.memory_allocated(index) / (1024 * 1024), 2)
+        snapshot["memory_reserved_mib"] = round(torch.cuda.memory_reserved(index) / (1024 * 1024), 2)
+        snapshot["max_memory_allocated_mib"] = round(torch.cuda.max_memory_allocated(index) / (1024 * 1024), 2)
+        with contextlib.suppress(Exception):
+            free_bytes, total_bytes = torch.cuda.mem_get_info(index)
+            snapshot["memory_free_mib"] = round(free_bytes / (1024 * 1024), 2)
+            snapshot["memory_total_mib"] = round(total_bytes / (1024 * 1024), 2)
+    except Exception as exc:  # pragma: no cover - defensive snapshot path
+        snapshot["snapshot_error"] = str(exc)
+    return snapshot
 
 
 def _default_output_dir(audio_path: Path) -> Path:
@@ -832,7 +929,21 @@ class _PromptEncoderOutputDeviceAdapter:
         return moved
 
 
-def _build_in_process_pipeline(runtime: LtxInProcessRuntime, namespace: Any, config: LTX23RuntimeConfig) -> Any:
+def _build_in_process_pipeline(
+    runtime: LtxInProcessRuntime,
+    namespace: Any,
+    config: LTX23RuntimeConfig,
+    debug_logger: RunDebugLogger | None = None,
+) -> Any:
+    build_started = time.perf_counter()
+    if debug_logger is not None:
+        debug_logger.event(
+            "pipeline_build_start",
+            checkpoint_path=namespace.checkpoint_path,
+            gemma_root=namespace.gemma_root,
+            quantization=getattr(namespace, "quantization", None),
+            compile=bool(getattr(namespace, "compile", False)),
+        )
     pipeline = runtime.pipeline_class(
         checkpoint_path=namespace.checkpoint_path,
         distilled_lora=namespace.distilled_lora,
@@ -853,6 +964,14 @@ def _build_in_process_pipeline(runtime: LtxInProcessRuntime, namespace: Any, con
             model_device=prompt_encoder_device,
             output_device=pipeline_device,
         )
+    if debug_logger is not None:
+        debug_logger.event(
+            "pipeline_build_done",
+            seconds=round(time.perf_counter() - build_started, 3),
+            pipeline_device=str(pipeline_device),
+            prompt_encoder_device=str(prompt_encoder_device),
+            gpu_snapshot=_gpu_snapshot(pipeline_device),
+        )
     return pipeline
 
 
@@ -860,10 +979,33 @@ def _render_segment_in_process(
     pipeline: Any,
     runtime: LtxInProcessRuntime,
     namespace: Any,
+    debug_logger: RunDebugLogger | None = None,
+    segment_index: int | None = None,
+    segment_total: int | None = None,
 ) -> Path:
     output_path = Path(namespace.output_path).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tiling_config = runtime.tiling_config_class.default()
+    pipeline_device = getattr(pipeline, "device", "unknown")
+    if debug_logger is not None:
+        debug_logger.event(
+            "segment_start",
+            segment_index=segment_index,
+            segment_total=segment_total,
+            output_path=output_path,
+            image_path=getattr(namespace, "images", None),
+            audio_path=namespace.audio_path,
+            audio_start_time=namespace.audio_start_time,
+            audio_max_duration=namespace.audio_max_duration,
+            num_frames=namespace.num_frames,
+            frame_rate=namespace.frame_rate,
+            width=namespace.width,
+            height=namespace.height,
+            seed=namespace.seed,
+            gpu_snapshot=_gpu_snapshot(pipeline_device),
+        )
+    _maybe_torch_cuda_synchronize(pipeline_device)
+    pipeline_started = time.perf_counter()
     video, audio = pipeline(
         prompt=namespace.prompt,
         negative_prompt=namespace.negative_prompt,
@@ -887,6 +1029,16 @@ def _render_segment_in_process(
         streaming_prefetch_count=namespace.streaming_prefetch_count,
         max_batch_size=namespace.max_batch_size,
     )
+    _maybe_torch_cuda_synchronize(pipeline_device)
+    if debug_logger is not None:
+        debug_logger.event(
+            "segment_pipeline_done",
+            segment_index=segment_index,
+            seconds=round(time.perf_counter() - pipeline_started, 3),
+            gpu_snapshot=_gpu_snapshot(pipeline_device),
+        )
+    _maybe_torch_cuda_synchronize(pipeline_device)
+    encode_started = time.perf_counter()
     runtime.encode_video(
         video=video,
         fps=namespace.frame_rate,
@@ -894,6 +1046,15 @@ def _render_segment_in_process(
         output_path=str(output_path),
         video_chunks_number=runtime.get_video_chunks_number(namespace.num_frames, tiling_config),
     )
+    _maybe_torch_cuda_synchronize(pipeline_device)
+    if debug_logger is not None:
+        debug_logger.event(
+            "segment_encode_done",
+            segment_index=segment_index,
+            seconds=round(time.perf_counter() - encode_started, 3),
+            output_path=output_path,
+            gpu_snapshot=_gpu_snapshot(pipeline_device),
+        )
     return output_path
 
 
@@ -902,15 +1063,32 @@ def _run_segments_in_process(
     ltx_runtime: LtxInProcessRuntime,
     segment_commands: Sequence[SegmentCommand],
     runtime_config: LTX23RuntimeConfig,
+    debug_logger: RunDebugLogger | None = None,
 ) -> list[Path]:
     if not segment_commands:
         return []
+    parse_started = time.perf_counter()
     parsed_segments = [_parse_official_segment_args(ltx_runtime, segment.command) for segment in segment_commands]
+    if debug_logger is not None:
+        debug_logger.event(
+            "segment_args_parsed",
+            segment_count=len(parsed_segments),
+            seconds=round(time.perf_counter() - parse_started, 3),
+        )
     rendered: list[Path] = []
     with _torch_inference_context():
-        pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0], runtime_config)
-        for namespace in parsed_segments:
-            rendered.append(_render_segment_in_process(pipeline, ltx_runtime, namespace))
+        pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0], runtime_config, debug_logger)
+        for index, namespace in enumerate(parsed_segments, start=1):
+            rendered.append(
+                _render_segment_in_process(
+                    pipeline,
+                    ltx_runtime,
+                    namespace,
+                    debug_logger=debug_logger,
+                    segment_index=index,
+                    segment_total=len(parsed_segments),
+                )
+            )
     return rendered
 
 
@@ -932,6 +1110,8 @@ def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23Ru
         enhance_prompt=bool(args.enhance_prompt),
         video_cfg_guidance_scale=args.video_cfg_guidance_scale,
         prompt_encoder_device=str(args.prompt_encoder_device),
+        debug=bool(args.debug or args.debug_log is not None),
+        debug_log_path=_resolve_debug_log_path(bool(args.debug), args.debug_log, output_dir),
         run_commands=bool(args.run),
         emit_run_script=bool(args.emit_run_script),
         overwrite=bool(args.overwrite),
@@ -981,6 +1161,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--enhance-prompt", action="store_true")
     parser.add_argument("--video-cfg-guidance-scale", type=float, default=DEFAULT_VIDEO_GUIDANCE_SCALE)
     parser.add_argument("--prompt-encoder-device", default=os.environ.get("LTX2_PROMPT_ENCODER_DEVICE", "match"))
+    parser.add_argument("--debug", action="store_true", help="Emit step-by-step debug progress and write a JSONL debug log.")
+    parser.add_argument("--debug-log", default=None, help="Optional path for the JSONL debug log.")
     parser.add_argument("--extra-ltx-arg", action="append", default=[])
     return parser.parse_args(argv)
 
@@ -1026,6 +1208,27 @@ def run(argv: list[str] | None = None) -> int:
     output_dir = args.output_dir.expanduser().resolve() if args.output_dir is not None else _default_output_dir(Path(audio_path))
     output_dir.mkdir(parents=True, exist_ok=True)
     runtime = _build_runtime_config(args, output_dir)
+    debug_logger = RunDebugLogger(
+        enabled=runtime.debug,
+        log_path=runtime.debug_log_path,
+        echo=bool(args.debug),
+    )
+    debug_logger.event(
+        "run_start",
+        workflow_path=defaults.workflow_path,
+        audio_path=audio_path,
+        conditioning_audio=conditioning_audio,
+        frames_dir=frames_dir,
+        output_dir=output_dir,
+        segment_seconds=segment_seconds,
+        fps=fps,
+        requested_width=requested_width,
+        requested_height=requested_height,
+        width=width,
+        height=height,
+        use_text_to_video=use_text_to_video,
+        prompt_encoder_device=runtime.prompt_encoder_device,
+    )
     if runtime.run_commands or runtime.emit_run_script:
         runtime = LTX23RuntimeConfig(
             pipeline_module=runtime.pipeline_module,
@@ -1044,6 +1247,8 @@ def run(argv: list[str] | None = None) -> int:
             enhance_prompt=runtime.enhance_prompt,
             video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
             prompt_encoder_device=runtime.prompt_encoder_device,
+            debug=runtime.debug,
+            debug_log_path=runtime.debug_log_path,
             run_commands=runtime.run_commands,
             emit_run_script=runtime.emit_run_script,
             overwrite=runtime.overwrite,
@@ -1059,6 +1264,12 @@ def run(argv: list[str] | None = None) -> int:
         )
         if runtime.run_commands or runtime.emit_run_script
         else None
+    )
+    debug_logger.event(
+        "segments_planned",
+        segment_count=len(segments),
+        prepared_conditioning_audio=prepared_audio_paths is not None,
+        conditioning_chunk_count=0 if prepared_audio_paths is None else len(prepared_audio_paths),
     )
     segment_commands = build_segment_commands(
         defaults=defaults,
@@ -1083,23 +1294,44 @@ def run(argv: list[str] | None = None) -> int:
     video_only_path: Path | None = None
     final_video_path: Path | None = None
     if runtime.run_commands:
+        runtime_load_started = time.perf_counter()
         ltx_runtime = _load_ltx_inference_runtime(runtime.ltx_repo_root)
+        debug_logger.event(
+            "runtime_loaded",
+            seconds=round(time.perf_counter() - runtime_load_started, 3),
+            repo_root=runtime.ltx_repo_root,
+            pipeline_module=runtime.pipeline_module,
+        )
         rendered_segments = _run_segments_in_process(
             ltx_runtime=ltx_runtime,
             segment_commands=segment_commands,
             runtime_config=runtime,
+            debug_logger=debug_logger,
         )
         if rendered_segments and not args.skip_final_concat:
+            concat_started = time.perf_counter()
             video_only_path = _concat_video_streams(
                 rendered_segments,
                 output_dir / f"{defaults.output_prefix}_video_only.mp4",
                 overwrite=runtime.overwrite,
             )
+            debug_logger.event(
+                "video_concat_done",
+                seconds=round(time.perf_counter() - concat_started, 3),
+                video_only_path=video_only_path,
+                rendered_segments=rendered_segments,
+            )
+            mux_started = time.perf_counter()
             final_video_path = _mux_original_audio(
                 video_only_path,
                 Path(audio_path),
                 output_dir / f"{defaults.output_prefix}.mp4",
                 overwrite=runtime.overwrite,
+            )
+            debug_logger.event(
+                "final_mux_done",
+                seconds=round(time.perf_counter() - mux_started, 3),
+                final_video_path=final_video_path,
             )
 
     run_script_path: Path | None = None
@@ -1111,6 +1343,7 @@ def run(argv: list[str] | None = None) -> int:
             segment_commands=segment_commands,
             include_final_concat=not args.skip_final_concat,
         )
+        debug_logger.event("run_script_emitted", run_script_path=run_script_path)
 
     manifest = build_base_manifest(
         workflow_path=defaults.workflow_path,
@@ -1145,15 +1378,18 @@ def run(argv: list[str] | None = None) -> int:
     manifest["rendered_segments"] = [str(path) for path in rendered_segments]
     manifest["video_only_output"] = str(video_only_path) if video_only_path is not None else None
     manifest["final_video"] = str(final_video_path) if final_video_path is not None else None
+    manifest["debug_log"] = str(runtime.debug_log_path) if runtime.debug_log_path is not None else None
     manifest["notes"] = [
         "Backend target: official LTX-2 a2vid two-stage pipeline in-process.",
         "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
         "Final mux always restores the original source audio after segment video concatenation.",
         "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
         f"Prompt encoder device override: {runtime.prompt_encoder_device}.",
+        "Use --debug to emit step-by-step progress plus a JSONL debug log.",
         "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
     ]
     manifest_path = write_manifest(manifest, output_dir / args.manifest_name)
+    debug_logger.event("manifest_written", manifest_path=manifest_path, final_video=final_video_path)
 
     print(f"Workflow defaults: {defaults.workflow_path}")
     print(f"Audio: {audio_info.path}")
@@ -1161,6 +1397,8 @@ def run(argv: list[str] | None = None) -> int:
     print(f"Frames: {Path(frames_dir).resolve()}")
     print(f"Segments planned: {len(segment_commands)}")
     print(f"Manifest: {manifest_path}")
+    if runtime.debug_log_path is not None:
+        print(f"Debug log: {runtime.debug_log_path}")
     if run_script_path is not None:
         print(f"Run script: {run_script_path}")
     if final_video_path is not None:

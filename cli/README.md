@@ -64,6 +64,14 @@ When `--run` is enabled, `ltx23_gpu_ready.py` now executes the official LTX pipe
 
 When VRAM is tight, add `--prompt-encoder-device cpu` to keep the Gemma prompt encoder off the GPU. The encoded prompt tensors are copied back to the pipeline device before diffusion starts, so the main denoising path still runs on GPU.
 
+When a run is slow or stalls, add `--debug`. The runner will emit step-by-step progress to stdout and write `ltx23_debug.jsonl` under the output directory. That log includes:
+
+- runtime import timing
+- pipeline build timing and device placement
+- per-segment start / pipeline / encode timing
+- CUDA memory snapshots before and after each segment
+- final concat / mux timing
+
 Example on a GPU instance with the official repo bootstrapped under `/workspace/LTX-2`:
 
 ```bash
@@ -125,6 +133,7 @@ uv run python cli/ltx23_gpu_ready.py \
   --video-cfg-guidance-scale 1.0 \
   --extra-ltx-arg=--streaming-prefetch-count \
   --extra-ltx-arg=1 \
+  --debug \
   --run \
   --overwrite
 ```
