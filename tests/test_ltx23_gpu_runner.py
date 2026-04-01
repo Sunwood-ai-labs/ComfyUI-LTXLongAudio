@@ -370,3 +370,80 @@ def test_build_in_process_pipeline_can_override_prompt_encoder_device(monkeypatc
     assert outputs[0].audio_encoding == "audio@cuda:0"
     assert outputs[0].attention_mask == "mask@cuda:0"
     assert call_kwargs == [{"streaming_prefetch_count": None}]
+
+
+def test_build_in_process_pipeline_can_override_prompt_streaming(monkeypatch: pytest.MonkeyPatch):
+    call_kwargs: list[dict[str, object]] = []
+
+    class FakeTensor:
+        def __init__(self, label: str):
+            self.label = label
+
+        def to(self, device):  # type: ignore[no-untyped-def]
+            return f"{self.label}@{device}"
+
+    class FakeOutput(tuple):
+        def __new__(cls, video_encoding, audio_encoding, attention_mask):  # type: ignore[no-untyped-def]
+            return super().__new__(cls, (video_encoding, audio_encoding, attention_mask))
+
+        video_encoding = property(lambda self: self[0])
+        audio_encoding = property(lambda self: self[1])
+        attention_mask = property(lambda self: self[2])
+
+    class FakeTorchModule:
+        float32 = "float32"
+
+        @staticmethod
+        def device(raw: str) -> str:
+            return str(raw)
+
+    class DummyPromptEncoder:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+
+        def __call__(self, prompts, **kwargs):  # type: ignore[no-untyped-def]
+            call_kwargs.append(dict(kwargs))
+            return [FakeOutput(FakeTensor("video"), FakeTensor("audio"), FakeTensor("mask"))]
+
+    class DummyPipeline:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+            self.device = "cuda:0"
+            self.dtype = FakeTorchModule.float32
+            self.prompt_encoder = "original"
+
+    original_import_module = gpu_runner.importlib.import_module
+
+    def fake_import_module(name: str):  # type: ignore[no-untyped-def]
+        if name == "torch":
+            return FakeTorchModule
+        return original_import_module(name)
+
+    monkeypatch.setattr(gpu_runner.importlib, "import_module", fake_import_module)
+
+    runtime = gpu_runner.LtxInProcessRuntime(
+        parser_factory=lambda: None,
+        pipeline_class=DummyPipeline,
+        prompt_encoder_class=DummyPromptEncoder,
+        multi_modal_guider_params=lambda **kwargs: kwargs,
+        tiling_config_class=SimpleNamespace(default=lambda: None),
+        get_video_chunks_number=lambda num_frames, tiling_config: 1,
+        encode_video=lambda **kwargs: None,
+    )
+    namespace = SimpleNamespace(
+        checkpoint_path="/weights/checkpoint.safetensors",
+        distilled_lora=(),
+        spatial_upsampler_path="/weights/upscaler.safetensors",
+        gemma_root="/weights/gemma",
+        lora=(),
+        quantization=None,
+        compile=False,
+    )
+    config = LTX23RuntimeConfig(prompt_streaming_prefetch_count=1)
+
+    pipeline = gpu_runner._build_in_process_pipeline(runtime, namespace, config)
+    outputs = pipeline.prompt_encoder(["hello"], streaming_prefetch_count=None)
+
+    assert isinstance(pipeline.prompt_encoder, gpu_runner._PromptEncoderOutputDeviceAdapter)
+    assert outputs[0].video_encoding == "video@cuda:0"
+    assert call_kwargs == [{"streaming_prefetch_count": 1}]

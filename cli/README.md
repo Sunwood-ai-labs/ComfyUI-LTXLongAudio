@@ -77,10 +77,11 @@ Performance tuning is now first-class instead of hidden behind `--extra-ltx-arg`
 - `--performance-profile throughput`: disables layer streaming unless you explicitly set it and defaults `--max-batch-size` to `4`
 - `--performance-profile low-vram`: enables `--streaming-prefetch-count 1` unless you explicitly override it and also defaults `--max-batch-size` to `4`
 - `--streaming-prefetch-count N`: explicit official layer-streaming control
+- `--prompt-streaming-prefetch-count N`: in-process only override for the prompt encoder, useful when Gemma must stream but diffusion should stay GPU-resident
 - `--max-batch-size N`: explicit guidance batching control
 - `--compile-transformer`: forwards to the official `--compile` flag
 
-Why this matters on L4: `--streaming-prefetch-count 1` pushes the official PromptEncoder and DiffusionStage into CPU-built layer streaming mode. That saves VRAM, but it can leave GPU utilization very low. For throughput-focused runs on a 24 GB card, start with `--performance-profile throughput` and add `--quantization fp8-cast` before falling back to streaming.
+Why this matters on L4: `--streaming-prefetch-count 1` pushes the official PromptEncoder and DiffusionStage into CPU-built layer streaming mode. That saves VRAM, but it can leave GPU utilization very low. For throughput-focused runs on a 24 GB card, start with `--performance-profile throughput --quantization fp8-cast`. If Gemma then OOMs, add `--prompt-streaming-prefetch-count 1` before falling back to full low-VRAM mode.
 
 Example on a GPU instance with the official repo bootstrapped under `/workspace/LTX-2`:
 

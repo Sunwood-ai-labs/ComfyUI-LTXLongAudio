@@ -96,6 +96,7 @@ class LTX23RuntimeConfig:
     prompt_encoder_device: str = "match"
     performance_profile: str = "manual"
     streaming_prefetch_count: int | None = None
+    prompt_streaming_prefetch_count: int | None = None
     max_batch_size: int | None = None
     compile_transformer: bool = False
     debug: bool = False
@@ -121,6 +122,7 @@ class Ltx23Assets:
     enhance_prompt: bool = False
     video_cfg_guidance_scale: float | None = None
     streaming_prefetch_count: int | None = None
+    prompt_streaming_prefetch_count: int | None = None
     max_batch_size: int | None = None
     compile_transformer: bool = False
     extra_args: tuple[str, ...] = ()
@@ -982,6 +984,7 @@ class _PromptEncoderOutputDeviceAdapter:
         dtype: Any,
         model_device: Any,
         output_device: Any,
+        streaming_prefetch_count_override: int | None = None,
     ) -> None:
         self._inner = prompt_encoder_class(
             checkpoint_path=checkpoint_path,
@@ -991,11 +994,15 @@ class _PromptEncoderOutputDeviceAdapter:
         )
         self._output_device = output_device
         self._disable_streaming = str(model_device).startswith("cpu")
+        self._streaming_prefetch_count_override = streaming_prefetch_count_override
 
     def __call__(self, prompts: list[str], **kwargs: Any) -> Any:
         if self._disable_streaming and "streaming_prefetch_count" in kwargs:
             kwargs = dict(kwargs)
             kwargs["streaming_prefetch_count"] = None
+        elif self._streaming_prefetch_count_override is not None:
+            kwargs = dict(kwargs)
+            kwargs["streaming_prefetch_count"] = self._streaming_prefetch_count_override
         outputs = self._inner(prompts, **kwargs)
         if not outputs:
             return outputs
@@ -1038,7 +1045,8 @@ def _build_in_process_pipeline(
     )
     prompt_encoder_device = _resolve_torch_device(config.prompt_encoder_device, getattr(pipeline, "device", None))
     pipeline_device = getattr(pipeline, "device", prompt_encoder_device)
-    if prompt_encoder_device != pipeline_device:
+    prompt_streaming_override = config.prompt_streaming_prefetch_count
+    if prompt_encoder_device != pipeline_device or prompt_streaming_override is not None:
         pipeline.prompt_encoder = _PromptEncoderOutputDeviceAdapter(
             prompt_encoder_class=runtime.prompt_encoder_class,
             checkpoint_path=namespace.checkpoint_path,
@@ -1046,6 +1054,7 @@ def _build_in_process_pipeline(
             dtype=getattr(pipeline, "dtype", None),
             model_device=prompt_encoder_device,
             output_device=pipeline_device,
+            streaming_prefetch_count_override=prompt_streaming_override,
         )
     if debug_logger is not None:
         debug_logger.event(
@@ -1053,6 +1062,7 @@ def _build_in_process_pipeline(
             seconds=round(time.perf_counter() - build_started, 3),
             pipeline_device=str(pipeline_device),
             prompt_encoder_device=str(prompt_encoder_device),
+            prompt_streaming_prefetch_count=prompt_streaming_override,
             gpu_snapshot=_gpu_snapshot(pipeline_device),
         )
     return pipeline
@@ -1195,6 +1205,7 @@ def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23Ru
         prompt_encoder_device=str(args.prompt_encoder_device),
         performance_profile=str(args.performance_profile),
         streaming_prefetch_count=args.streaming_prefetch_count,
+        prompt_streaming_prefetch_count=args.prompt_streaming_prefetch_count,
         max_batch_size=args.max_batch_size,
         compile_transformer=bool(args.compile_transformer),
         debug=bool(args.debug or args.debug_log is not None),
@@ -1255,6 +1266,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="throughput keeps models GPU-resident when possible; low-vram enables streaming defaults; manual preserves explicit tuning only.",
     )
     parser.add_argument("--streaming-prefetch-count", type=int, default=None, help="Official layer-streaming prefetch count.")
+    parser.add_argument(
+        "--prompt-streaming-prefetch-count",
+        type=int,
+        default=None,
+        help="Optional prompt-encoder-only streaming prefetch count for in-process runs.",
+    )
     parser.add_argument("--max-batch-size", type=int, default=None, help="Official guidance batching size per transformer call.")
     parser.add_argument("--compile-transformer", action="store_true", help="Enable official --compile transformer mode.")
     parser.add_argument("--debug", action="store_true", help="Emit step-by-step debug progress and write a JSONL debug log.")
@@ -1326,6 +1343,7 @@ def run(argv: list[str] | None = None) -> int:
         prompt_encoder_device=runtime.prompt_encoder_device,
         performance_profile=runtime.performance_profile,
         streaming_prefetch_count=runtime.streaming_prefetch_count,
+        prompt_streaming_prefetch_count=runtime.prompt_streaming_prefetch_count,
         max_batch_size=runtime.max_batch_size,
         compile_transformer=runtime.compile_transformer,
     )
@@ -1349,6 +1367,7 @@ def run(argv: list[str] | None = None) -> int:
             prompt_encoder_device=runtime.prompt_encoder_device,
             performance_profile=runtime.performance_profile,
             streaming_prefetch_count=runtime.streaming_prefetch_count,
+            prompt_streaming_prefetch_count=runtime.prompt_streaming_prefetch_count,
             max_batch_size=runtime.max_batch_size,
             compile_transformer=runtime.compile_transformer,
             debug=runtime.debug,
@@ -1477,6 +1496,7 @@ def run(argv: list[str] | None = None) -> int:
     manifest["prompt_encoder_device"] = runtime.prompt_encoder_device
     manifest["performance_profile"] = runtime.performance_profile
     manifest["streaming_prefetch_count"] = runtime.streaming_prefetch_count
+    manifest["prompt_streaming_prefetch_count"] = runtime.prompt_streaming_prefetch_count
     manifest["max_batch_size"] = runtime.max_batch_size
     manifest["compile_transformer"] = runtime.compile_transformer
     manifest["ltx_repo_root"] = str(runtime.ltx_repo_root) if runtime.ltx_repo_root is not None else None
@@ -1494,6 +1514,7 @@ def run(argv: list[str] | None = None) -> int:
         "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
         f"Prompt encoder device override: {runtime.prompt_encoder_device}.",
         f"Performance profile: {runtime.performance_profile}.",
+        f"Prompt streaming prefetch count: {runtime.prompt_streaming_prefetch_count}.",
         "Use --debug to emit step-by-step progress plus a JSONL debug log.",
         "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
     ]
@@ -1509,6 +1530,7 @@ def run(argv: list[str] | None = None) -> int:
         "Runtime tuning: "
         f"profile={runtime.performance_profile}, "
         f"streaming_prefetch_count={runtime.streaming_prefetch_count}, "
+        f"prompt_streaming_prefetch_count={runtime.prompt_streaming_prefetch_count}, "
         f"max_batch_size={runtime.max_batch_size}, "
         f"compile_transformer={runtime.compile_transformer}"
     )
