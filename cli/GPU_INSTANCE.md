@@ -46,6 +46,16 @@ uv run python cli/ltx23_download_models.py \
   --assets-root /workspace/models/ltx23_official
 ```
 
+If you want the notebook / Origin workflow asset closure instead, use the notebook-aligned profile:
+
+```bash
+uv run python cli/ltx23_download_models.py \
+  --asset-profile notebook-comfy \
+  --assets-root /workspace/models/ltx23_notebook
+```
+
+That profile stages the GGUF UNet, split VAEs, Gemma fp8 text encoder, connectors, MelBand, and TAE helper weights. It also follows the saved Origin workflow defaults for `latent_upscale_models/ltx-2.3-spatial-upscaler-x2-1.0.safetensors` and distilled LoRA strength `0.6`.
+
 If your environment needs authenticated Hugging Face access, set `HF_TOKEN`
 or pass `--hf-token`.
 The default Gemma repo used by the official pipeline is gated, so anonymous
@@ -57,6 +67,8 @@ If you want to fetch the public assets first and add Gemma later, use
 If `nvidia-smi` or `torch.cuda.is_available()` cannot see the GPU even though
 `/dev/nvidia*` exists, export `LD_LIBRARY_PATH` as shown above before running
 the official pipeline.
+
+The command examples below still target the official `ltx_pipelines` backend and therefore use `/workspace/models/ltx23_official/...`, not `/workspace/models/ltx23_notebook/...`.
 
 ## Preparing segment commands
 

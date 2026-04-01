@@ -135,9 +135,11 @@ def test_notebook_profile_downloads_notebook_asset_closure(tmp_path: Path, monke
     assert manifest["exports"]["LTX23_NOTEBOOK_GEMMA_FP8_PATH"].endswith("gemma_3_12B_it_fp8_scaled.safetensors")
     assert manifest["exports"]["LTX23_NOTEBOOK_MELBAND_PATH"].endswith("MelBandRoformer_fp16.safetensors")
     assert manifest["exports"]["LTX23_NOTEBOOK_TAE_VAE_PATH"].endswith("taeltx2_3.safetensors")
+    assert manifest["exports"]["LTX23_NOTEBOOK_DISTILLED_LORA_STRENGTH"] == "0.6"
     assert "notebook-comfy" in manifest["notes"][0]
     assert (tmp_path / "text_encoders" / "ltx-2.3-22b-dev_embeddings_connectors.safetensors").exists()
     assert (tmp_path / "vae" / "ltx-2.3-22b-dev_video_vae.safetensors").exists()
+    assert (tmp_path / "latent_upscale_models" / "ltx-2.3-spatial-upscaler-x2-1.0.safetensors").exists()
 
 
 def test_disk_check_uses_nearest_existing_parent(tmp_path: Path):

@@ -19,6 +19,7 @@ DEFAULT_TAE_REPO_ID = "Kijai/LTX2.3_comfy"
 ASSET_PROFILE_OFFICIAL = "official"
 ASSET_PROFILE_NOTEBOOK_COMFY = "notebook-comfy"
 DEFAULT_ASSET_PROFILE = ASSET_PROFILE_OFFICIAL
+DEFAULT_NOTEBOOK_DISTILLED_LORA_STRENGTH = 0.6
 DEFAULT_ASSETS_ROOT = Path("models") / "ltx23_official"
 DEFAULT_MANIFEST_NAME = "ltx23_assets_manifest.json"
 DEFAULT_RESERVE_GB = 20
@@ -150,7 +151,7 @@ def build_notebook_comfy_asset_specs(
             key="spatial_upsampler",
             repo_id=model_repo_id,
             filename="ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
-            local_subdir="upscalers",
+            local_subdir="latent_upscale_models",
             description="Notebook spatial upscaler used by the Origin workflow.",
         ),
         AssetSpec(
@@ -352,6 +353,7 @@ def build_exports(downloaded: list[DownloadedAsset]) -> dict[str, str]:
         exports["LTX23_NOTEBOOK_SPATIAL_UPSAMPLER_PATH"] = by_key["spatial_upsampler"].local_path
     if "distilled_lora" in by_key:
         exports["LTX23_NOTEBOOK_DISTILLED_LORA_PATH"] = by_key["distilled_lora"].local_path
+        exports["LTX23_NOTEBOOK_DISTILLED_LORA_STRENGTH"] = str(DEFAULT_NOTEBOOK_DISTILLED_LORA_STRENGTH)
     if "melband_model" in by_key:
         exports["LTX23_NOTEBOOK_MELBAND_PATH"] = by_key["melband_model"].local_path
     if "tae_vae" in by_key:
@@ -436,6 +438,7 @@ def run(argv: list[str] | None = None) -> int:
             else [
                 "Asset profile: notebook-comfy.",
                 "This downloader follows the notebook and Origin workflow asset closure, including GGUF, split VAEs, MelBand, and TAE helper weights.",
+                "The saved Origin workflow uses ltx-2.3-spatial-upscaler-x2-1.0.safetensors from latent_upscale_models and distilled LoRA strength 0.6.",
                 "These assets do not imply runtime parity by themselves; the current GPU runner still targets the official ltx_pipelines backend.",
             ]
         ),

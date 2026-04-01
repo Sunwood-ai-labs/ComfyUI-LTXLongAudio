@@ -218,6 +218,12 @@ def test_throughput_profile_prefers_gpu_residency(tmp_path: Path):
     assert first[first.index("--max-batch-size") + 1] == "4"
 
 
+def test_parse_args_defaults_to_workflow_lora_strength():
+    args = gpu_ready.parse_args([])
+
+    assert args.distilled_lora_strength == pytest.approx(0.6)
+
+
 def test_legacy_extra_args_are_promoted_to_first_class_tuning(tmp_path: Path):
     for name in ("checkpoint.safetensors", "distilled.safetensors", "upscaler.safetensors"):
         (tmp_path / name).write_bytes(b"model")

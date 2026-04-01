@@ -83,6 +83,8 @@ That profile downloads the notebook-aligned files:
 - `MelBandRoformer_fp16.safetensors`
 - `taeltx2_3.safetensors`
 
+The notebook profile writes the stage-2 upscaler under `latent_upscale_models/` and exports `LTX23_NOTEBOOK_DISTILLED_LORA_STRENGTH=0.6`, matching the saved Origin workflow.
+
 When `--run` is enabled, `ltx23_gpu_ready.py` now executes the official LTX pipeline in-process instead of spawning one Python subprocess per segment. The current interpreter must be able to import the official `ltx_pipelines` packages. On GPU boxes that usually means running this CLI from the LTX-2 environment and pointing `--ltx-repo-root` at the cloned official repository.
 
 When VRAM is tight, add `--prompt-encoder-device cpu` to keep the Gemma prompt encoder off the GPU. The encoded prompt tensors are copied back to the pipeline device before diffusion starts, so the main denoising path still runs on GPU.
