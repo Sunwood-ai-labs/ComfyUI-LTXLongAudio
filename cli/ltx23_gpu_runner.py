@@ -91,6 +91,7 @@ class LTX23RuntimeConfig:
     quantization: str | tuple[str, ...] | None = None
     enhance_prompt: bool = False
     video_cfg_guidance_scale: float | None = DEFAULT_VIDEO_GUIDANCE_SCALE
+    prompt_encoder_device: str = "match"
     run_commands: bool = False
     emit_run_script: bool = False
     overwrite: bool = False
@@ -152,6 +153,7 @@ class SegmentCommand:
 class LtxInProcessRuntime:
     parser_factory: Any
     pipeline_class: Any
+    prompt_encoder_class: Any
     multi_modal_guider_params: Any
     tiling_config_class: Any
     get_video_chunks_number: Any
@@ -218,6 +220,7 @@ def _load_ltx_inference_runtime(ltx_repo_root: Path | None) -> LtxInProcessRunti
     try:
         args_module = importlib.import_module("ltx_pipelines.utils.args")
         pipeline_module = importlib.import_module("ltx_pipelines.a2vid_two_stage")
+        blocks_module = importlib.import_module("ltx_pipelines.utils.blocks")
         guiders_module = importlib.import_module("ltx_core.components.guiders")
         video_vae_module = importlib.import_module("ltx_core.model.video_vae")
         media_io_module = importlib.import_module("ltx_pipelines.utils.media_io")
@@ -226,6 +229,7 @@ def _load_ltx_inference_runtime(ltx_repo_root: Path | None) -> LtxInProcessRunti
         try:
             args_module = importlib.import_module("ltx_pipelines.utils.args")
             pipeline_module = importlib.import_module("ltx_pipelines.a2vid_two_stage")
+            blocks_module = importlib.import_module("ltx_pipelines.utils.blocks")
             guiders_module = importlib.import_module("ltx_core.components.guiders")
             video_vae_module = importlib.import_module("ltx_core.model.video_vae")
             media_io_module = importlib.import_module("ltx_pipelines.utils.media_io")
@@ -239,6 +243,7 @@ def _load_ltx_inference_runtime(ltx_repo_root: Path | None) -> LtxInProcessRunti
     return LtxInProcessRuntime(
         parser_factory=args_module.default_2_stage_arg_parser,
         pipeline_class=pipeline_module.A2VidPipelineTwoStage,
+        prompt_encoder_class=blocks_module.PromptEncoder,
         multi_modal_guider_params=guiders_module.MultiModalGuiderParams,
         tiling_config_class=video_vae_module.TilingConfig,
         get_video_chunks_number=video_vae_module.get_video_chunks_number,
@@ -780,8 +785,51 @@ def _build_video_guider_params(namespace: Any, runtime: LtxInProcessRuntime) -> 
     )
 
 
-def _build_in_process_pipeline(runtime: LtxInProcessRuntime, namespace: Any) -> Any:
-    return runtime.pipeline_class(
+def _resolve_torch_device(raw: str | None, default: Any) -> Any:
+    if raw in (None, "", "match"):
+        return default
+    torch = importlib.import_module("torch")
+    return torch.device(str(raw))
+
+
+class _PromptEncoderOutputDeviceAdapter:
+    def __init__(
+        self,
+        *,
+        prompt_encoder_class: Any,
+        checkpoint_path: str,
+        gemma_root: str,
+        dtype: Any,
+        model_device: Any,
+        output_device: Any,
+    ) -> None:
+        self._inner = prompt_encoder_class(
+            checkpoint_path=checkpoint_path,
+            gemma_root=gemma_root,
+            dtype=dtype,
+            device=model_device,
+        )
+        self._output_device = output_device
+
+    def __call__(self, prompts: list[str], **kwargs: Any) -> Any:
+        outputs = self._inner(prompts, **kwargs)
+        if not outputs:
+            return outputs
+        moved = []
+        for item in outputs:
+            audio_encoding = item.audio_encoding.to(self._output_device) if item.audio_encoding is not None else None
+            moved.append(
+                type(item)(
+                    item.video_encoding.to(self._output_device),
+                    audio_encoding,
+                    item.attention_mask.to(self._output_device),
+                )
+            )
+        return moved
+
+
+def _build_in_process_pipeline(runtime: LtxInProcessRuntime, namespace: Any, config: LTX23RuntimeConfig) -> Any:
+    pipeline = runtime.pipeline_class(
         checkpoint_path=namespace.checkpoint_path,
         distilled_lora=namespace.distilled_lora,
         spatial_upsampler_path=namespace.spatial_upsampler_path,
@@ -790,6 +838,18 @@ def _build_in_process_pipeline(runtime: LtxInProcessRuntime, namespace: Any) -> 
         quantization=getattr(namespace, "quantization", None),
         torch_compile=bool(getattr(namespace, "compile", False)),
     )
+    prompt_encoder_device = _resolve_torch_device(config.prompt_encoder_device, getattr(pipeline, "device", None))
+    pipeline_device = getattr(pipeline, "device", prompt_encoder_device)
+    if prompt_encoder_device != pipeline_device:
+        pipeline.prompt_encoder = _PromptEncoderOutputDeviceAdapter(
+            prompt_encoder_class=runtime.prompt_encoder_class,
+            checkpoint_path=namespace.checkpoint_path,
+            gemma_root=namespace.gemma_root,
+            dtype=getattr(pipeline, "dtype", None),
+            model_device=prompt_encoder_device,
+            output_device=pipeline_device,
+        )
+    return pipeline
 
 
 def _render_segment_in_process(
@@ -837,13 +897,14 @@ def _run_segments_in_process(
     *,
     ltx_runtime: LtxInProcessRuntime,
     segment_commands: Sequence[SegmentCommand],
+    runtime_config: LTX23RuntimeConfig,
 ) -> list[Path]:
     if not segment_commands:
         return []
     parsed_segments = [_parse_official_segment_args(ltx_runtime, segment.command) for segment in segment_commands]
     rendered: list[Path] = []
     with _torch_inference_context():
-        pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0])
+        pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0], runtime_config)
         for namespace in parsed_segments:
             rendered.append(_render_segment_in_process(pipeline, ltx_runtime, namespace))
     return rendered
@@ -866,6 +927,7 @@ def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23Ru
         quantization=None if args.quantization is None else tuple(args.quantization),
         enhance_prompt=bool(args.enhance_prompt),
         video_cfg_guidance_scale=args.video_cfg_guidance_scale,
+        prompt_encoder_device=str(args.prompt_encoder_device),
         run_commands=bool(args.run),
         emit_run_script=bool(args.emit_run_script),
         overwrite=bool(args.overwrite),
@@ -914,6 +976,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quantization", nargs="+", default=None)
     parser.add_argument("--enhance-prompt", action="store_true")
     parser.add_argument("--video-cfg-guidance-scale", type=float, default=DEFAULT_VIDEO_GUIDANCE_SCALE)
+    parser.add_argument("--prompt-encoder-device", default=os.environ.get("LTX2_PROMPT_ENCODER_DEVICE", "match"))
     parser.add_argument("--extra-ltx-arg", action="append", default=[])
     return parser.parse_args(argv)
 
@@ -976,6 +1039,7 @@ def run(argv: list[str] | None = None) -> int:
             quantization=runtime.quantization,
             enhance_prompt=runtime.enhance_prompt,
             video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
+            prompt_encoder_device=runtime.prompt_encoder_device,
             run_commands=runtime.run_commands,
             emit_run_script=runtime.emit_run_script,
             overwrite=runtime.overwrite,
@@ -1019,6 +1083,7 @@ def run(argv: list[str] | None = None) -> int:
         rendered_segments = _run_segments_in_process(
             ltx_runtime=ltx_runtime,
             segment_commands=segment_commands,
+            runtime_config=runtime,
         )
         if rendered_segments and not args.skip_final_concat:
             video_only_path = _concat_video_streams(
@@ -1068,6 +1133,7 @@ def run(argv: list[str] | None = None) -> int:
     manifest["height"] = height
     manifest["ltx_seed_base"] = ltx_seed_base
     manifest["pipeline_module"] = runtime.pipeline_module
+    manifest["prompt_encoder_device"] = runtime.prompt_encoder_device
     manifest["ltx_repo_root"] = str(runtime.ltx_repo_root) if runtime.ltx_repo_root is not None else None
     manifest["run_script"] = str(run_script_path) if run_script_path is not None else None
     manifest["command_preview"] = [segment.command for segment in segment_commands]
@@ -1080,6 +1146,7 @@ def run(argv: list[str] | None = None) -> int:
         "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
         "Final mux always restores the original source audio after segment video concatenation.",
         "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
+        f"Prompt encoder device override: {runtime.prompt_encoder_device}.",
         "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
     ]
     manifest_path = write_manifest(manifest, output_dir / args.manifest_name)

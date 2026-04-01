@@ -13,6 +13,7 @@ Current scope:
 - prepare GPU-ready LTX-2.3 segment commands for the official `ltx_pipelines` runtime
 - emit a runnable `run_segments.sh` handoff script for GPU instances
 - optionally run official LTX-2.3 inference in-process from one Python runner and restore the original full-length audio in the final mux
+- optionally split prompt encoding onto CPU while keeping the diffusion stages on GPU for low-VRAM runs
 - write a manifest that records selected images, segment timings, and command previews
 
 Deliberately excluded from this first CLI milestone:
@@ -61,6 +62,8 @@ uv run python cli/ltx23_gpu_ready.py \
 
 When `--run` is enabled, `ltx23_gpu_ready.py` now executes the official LTX pipeline in-process instead of spawning one Python subprocess per segment. The current interpreter must be able to import the official `ltx_pipelines` packages. On GPU boxes that usually means running this CLI from the LTX-2 environment and pointing `--ltx-repo-root` at the cloned official repository.
 
+When VRAM is tight, add `--prompt-encoder-device cpu` to keep the Gemma prompt encoder off the GPU. The encoded prompt tensors are copied back to the pipeline device before diffusion starts, so the main denoising path still runs on GPU.
+
 Example on a GPU instance with the official repo bootstrapped under `/workspace/LTX-2`:
 
 ```bash
@@ -74,6 +77,7 @@ cd /workspace/ComfyUI-LTXLongAudio
   --gemma-root /workspace/models/ltx23_official/gemma \
   --ltx-repo-root /workspace/LTX-2 \
   --output-dir /workspace/ltx23-run \
+  --prompt-encoder-device cpu \
   --run \
   --overwrite
 ```

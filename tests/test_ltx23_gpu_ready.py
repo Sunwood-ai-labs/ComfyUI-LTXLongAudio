@@ -521,6 +521,7 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
         lambda ltx_repo_root: gpu_runner.LtxInProcessRuntime(
             parser_factory=FakeParser,
             pipeline_class=FakePipeline,
+            prompt_encoder_class=lambda **kwargs: None,
             multi_modal_guider_params=lambda **kwargs: kwargs,
             tiling_config_class=FakeTilingConfig,
             get_video_chunks_number=lambda num_frames, tiling_config: 1,
@@ -561,4 +562,5 @@ def test_run_uses_single_in_process_pipeline_for_multiple_segments(tmp_path: Pat
     assert len(encoded_outputs) == 3
     assert inference_context_events == ["enter", "exit"]
     assert Path(manifest["final_video"]).exists()
+    assert manifest["prompt_encoder_device"] == "match"
     assert manifest["notes"][0] == "Backend target: official LTX-2 a2vid two-stage pipeline in-process."

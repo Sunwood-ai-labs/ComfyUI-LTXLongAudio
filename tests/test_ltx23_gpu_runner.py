@@ -4,6 +4,7 @@ import json
 import sys
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -223,3 +224,76 @@ def test_mux_original_audio_trims_to_source_duration(tmp_path: Path, monkeypatch
     assert "-af" in captured
     assert captured[captured.index("-af") + 1] == "atrim=duration=12.300000,asetpts=PTS-STARTPTS"
     assert captured[captured.index("-c:v") + 1] == "libx264"
+
+
+def test_build_in_process_pipeline_can_override_prompt_encoder_device(monkeypatch: pytest.MonkeyPatch):
+    init_calls: list[dict[str, object]] = []
+
+    class FakeTorchModule:
+        float32 = "float32"
+
+        @staticmethod
+        def device(raw: str) -> str:
+            return str(raw)
+
+    class DummyPromptEncoder:
+        def __init__(self, *, checkpoint_path, gemma_root, dtype, device):  # type: ignore[no-untyped-def]
+            init_calls.append(
+                {
+                    "checkpoint_path": checkpoint_path,
+                    "gemma_root": gemma_root,
+                    "dtype": dtype,
+                    "device": str(device),
+                }
+            )
+
+        def __call__(self, prompts, **kwargs):  # type: ignore[no-untyped-def]
+            return prompts, kwargs
+
+    class DummyPipeline:
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.kwargs = kwargs
+            self.device = "cuda:0"
+            self.dtype = FakeTorchModule.float32
+            self.prompt_encoder = "original"
+
+    original_import_module = gpu_runner.importlib.import_module
+
+    def fake_import_module(name: str):  # type: ignore[no-untyped-def]
+        if name == "torch":
+            return FakeTorchModule
+        return original_import_module(name)
+
+    monkeypatch.setattr(gpu_runner.importlib, "import_module", fake_import_module)
+
+    runtime = gpu_runner.LtxInProcessRuntime(
+        parser_factory=lambda: None,
+        pipeline_class=DummyPipeline,
+        prompt_encoder_class=DummyPromptEncoder,
+        multi_modal_guider_params=lambda **kwargs: kwargs,
+        tiling_config_class=SimpleNamespace(default=lambda: None),
+        get_video_chunks_number=lambda num_frames, tiling_config: 1,
+        encode_video=lambda **kwargs: None,
+    )
+    namespace = SimpleNamespace(
+        checkpoint_path="/weights/checkpoint.safetensors",
+        distilled_lora=(),
+        spatial_upsampler_path="/weights/upscaler.safetensors",
+        gemma_root="/weights/gemma",
+        lora=(),
+        quantization=None,
+        compile=False,
+    )
+    config = LTX23RuntimeConfig(prompt_encoder_device="cpu")
+
+    pipeline = gpu_runner._build_in_process_pipeline(runtime, namespace, config)
+
+    assert isinstance(pipeline.prompt_encoder, gpu_runner._PromptEncoderOutputDeviceAdapter)
+    assert init_calls == [
+        {
+            "checkpoint_path": "/weights/checkpoint.safetensors",
+            "gemma_root": "/weights/gemma",
+            "dtype": pipeline.dtype,
+            "device": "cpu",
+        }
+    ]
