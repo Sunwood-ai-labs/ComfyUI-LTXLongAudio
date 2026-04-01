@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -145,6 +147,16 @@ class SegmentCommand:
     mode: str
 
 
+@dataclass(frozen=True)
+class LtxInProcessRuntime:
+    parser_factory: Any
+    pipeline_class: Any
+    multi_modal_guider_params: Any
+    tiling_config_class: Any
+    get_video_chunks_number: Any
+    encode_video: Any
+
+
 def _normalize_dimension(value: int, divisor: int = 64) -> int:
     safe_value = max(int(value), divisor)
     return safe_value - (safe_value % divisor)
@@ -182,6 +194,55 @@ def _optional_path(raw: str | Path | None) -> Path | None:
     if raw is None:
         return None
     return Path(raw).expanduser().resolve()
+
+
+def _prepend_pythonpath(path: Path) -> None:
+    resolved = str(path.expanduser().resolve())
+    if resolved not in sys.path:
+        sys.path.insert(0, resolved)
+
+
+def _add_ltx_repo_src_paths(ltx_repo_root: Path | None) -> None:
+    if ltx_repo_root is None:
+        return
+    packages_root = ltx_repo_root.expanduser().resolve() / "packages"
+    if not packages_root.exists():
+        return
+    for src_dir in sorted(packages_root.glob("*/src")):
+        if src_dir.is_dir():
+            _prepend_pythonpath(src_dir)
+
+
+def _load_ltx_inference_runtime(ltx_repo_root: Path | None) -> LtxInProcessRuntime:
+    try:
+        args_module = importlib.import_module("ltx_pipelines.utils.args")
+        pipeline_module = importlib.import_module("ltx_pipelines.a2vid_two_stage")
+        guiders_module = importlib.import_module("ltx_core.components.guiders")
+        video_vae_module = importlib.import_module("ltx_core.model.video_vae")
+        media_io_module = importlib.import_module("ltx_pipelines.utils.media_io")
+    except ImportError:
+        _add_ltx_repo_src_paths(ltx_repo_root)
+        try:
+            args_module = importlib.import_module("ltx_pipelines.utils.args")
+            pipeline_module = importlib.import_module("ltx_pipelines.a2vid_two_stage")
+            guiders_module = importlib.import_module("ltx_core.components.guiders")
+            video_vae_module = importlib.import_module("ltx_core.model.video_vae")
+            media_io_module = importlib.import_module("ltx_pipelines.utils.media_io")
+        except ImportError as nested_exc:
+            root_text = str(ltx_repo_root.expanduser().resolve()) if ltx_repo_root is not None else "<not provided>"
+            raise ImportError(
+                "Unable to import the official LTX-2 Python runtime in-process. "
+                "Run this CLI inside the LTX-2 environment or provide --ltx-repo-root so its packages/*/src paths can be imported. "
+                f"ltx_repo_root={root_text}"
+            ) from nested_exc
+    return LtxInProcessRuntime(
+        parser_factory=args_module.default_2_stage_arg_parser,
+        pipeline_class=pipeline_module.A2VidPipelineTwoStage,
+        multi_modal_guider_params=guiders_module.MultiModalGuiderParams,
+        tiling_config_class=video_vae_module.TilingConfig,
+        get_video_chunks_number=video_vae_module.get_video_chunks_number,
+        encode_video=media_io_module.encode_video,
+    )
 
 
 def _coerce_text(value: object) -> str | None:
@@ -667,6 +728,99 @@ def _emit_run_script(
     return script_path
 
 
+def _segment_command_cli_args(command: Sequence[str]) -> list[str]:
+    if len(command) >= 3 and command[1] == "-m":
+        return list(command[3:])
+    return list(command)
+
+
+def _parse_official_segment_args(runtime: LtxInProcessRuntime, command: Sequence[str]) -> Any:
+    parser = runtime.parser_factory()
+    try:
+        return parser.parse_args(_segment_command_cli_args(command))
+    except SystemExit as exc:  # pragma: no cover - argparse prints its own diagnostics
+        raise ValueError(f"Failed to parse official LTX pipeline args from command: {command}") from exc
+
+
+def _build_video_guider_params(namespace: Any, runtime: LtxInProcessRuntime) -> Any:
+    return runtime.multi_modal_guider_params(
+        cfg_scale=namespace.video_cfg_guidance_scale,
+        stg_scale=namespace.video_stg_guidance_scale,
+        rescale_scale=namespace.video_rescale_scale,
+        modality_scale=namespace.a2v_guidance_scale,
+        skip_step=namespace.video_skip_step,
+        stg_blocks=namespace.video_stg_blocks,
+    )
+
+
+def _build_in_process_pipeline(runtime: LtxInProcessRuntime, namespace: Any) -> Any:
+    return runtime.pipeline_class(
+        checkpoint_path=namespace.checkpoint_path,
+        distilled_lora=namespace.distilled_lora,
+        spatial_upsampler_path=namespace.spatial_upsampler_path,
+        gemma_root=namespace.gemma_root,
+        loras=tuple(namespace.lora) if getattr(namespace, "lora", None) else (),
+        quantization=getattr(namespace, "quantization", None),
+        torch_compile=bool(getattr(namespace, "compile", False)),
+    )
+
+
+def _render_segment_in_process(
+    pipeline: Any,
+    runtime: LtxInProcessRuntime,
+    namespace: Any,
+) -> Path:
+    output_path = Path(namespace.output_path).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tiling_config = runtime.tiling_config_class.default()
+    video, audio = pipeline(
+        prompt=namespace.prompt,
+        negative_prompt=namespace.negative_prompt,
+        seed=namespace.seed,
+        height=namespace.height,
+        width=namespace.width,
+        num_frames=namespace.num_frames,
+        frame_rate=namespace.frame_rate,
+        num_inference_steps=namespace.num_inference_steps,
+        video_guider_params=_build_video_guider_params(namespace, runtime),
+        images=namespace.images,
+        audio_path=namespace.audio_path,
+        audio_start_time=namespace.audio_start_time,
+        audio_max_duration=(
+            namespace.audio_max_duration
+            if namespace.audio_max_duration is not None
+            else float(namespace.num_frames) / max(float(namespace.frame_rate), 1.0)
+        ),
+        tiling_config=tiling_config,
+        enhance_prompt=bool(namespace.enhance_prompt),
+        streaming_prefetch_count=namespace.streaming_prefetch_count,
+        max_batch_size=namespace.max_batch_size,
+    )
+    runtime.encode_video(
+        video=video,
+        fps=namespace.frame_rate,
+        audio=audio,
+        output_path=str(output_path),
+        video_chunks_number=runtime.get_video_chunks_number(namespace.num_frames, tiling_config),
+    )
+    return output_path
+
+
+def _run_segments_in_process(
+    *,
+    ltx_runtime: LtxInProcessRuntime,
+    segment_commands: Sequence[SegmentCommand],
+) -> list[Path]:
+    if not segment_commands:
+        return []
+    parsed_segments = [_parse_official_segment_args(ltx_runtime, segment.command) for segment in segment_commands]
+    pipeline = _build_in_process_pipeline(ltx_runtime, parsed_segments[0])
+    rendered: list[Path] = []
+    for namespace in parsed_segments:
+        rendered.append(_render_segment_in_process(pipeline, ltx_runtime, namespace))
+    return rendered
+
+
 def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23RuntimeConfig:
     return LTX23RuntimeConfig(
         pipeline_module=args.pipeline_module,
@@ -833,43 +987,11 @@ def run(argv: list[str] | None = None) -> int:
     video_only_path: Path | None = None
     final_video_path: Path | None = None
     if runtime.run_commands:
-        assets = Ltx23Assets(
-            ltx_python=runtime.python_executable,
-            checkpoint_path=_required_path(runtime.checkpoint_path, "LTX2_CHECKPOINT_PATH"),
-            distilled_lora_path=_required_path(runtime.distilled_lora_path, "LTX2_DISTILLED_LORA_PATH"),
-            distilled_lora_strength=float(runtime.distilled_lora_strength),
-            spatial_upsampler_path=_required_path(runtime.spatial_upsampler_path, "LTX2_SPATIAL_UPSAMPLER_PATH"),
-            gemma_root=_required_path(runtime.gemma_root, "LTX2_GEMMA_ROOT"),
-            negative_prompt=negative_prompt,
-            pipeline_module=runtime.pipeline_module,
-            num_inference_steps=runtime.num_inference_steps,
-            quantization=_normalize_quantization(runtime.quantization),
-            enhance_prompt=runtime.enhance_prompt,
-            video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
-            extra_args=tuple(runtime.extra_ltx_args),
+        ltx_runtime = _load_ltx_inference_runtime(runtime.ltx_repo_root)
+        rendered_segments = _run_segments_in_process(
+            ltx_runtime=ltx_runtime,
+            segment_commands=segment_commands,
         )
-        for segment, command in zip(segments, segment_commands, strict=True):
-            request = SegmentRenderRequest(
-                segment_index=command.segment_index,
-                prompt=prompt,
-                image_path=None if use_text_to_video else str(Path(segment.selected_image_path).expanduser().resolve()),
-                audio_path=str(Path(command.audio_path).expanduser().resolve()),
-                audio_start_time=command.audio_start_time,
-                audio_max_duration=command.audio_max_duration,
-                fps=command.fps,
-                frame_count=command.frame_count,
-                width=command.width,
-                height=command.height,
-                seed=command.seed,
-                output_path=command.output_path,
-                mode=command.mode,
-            )
-            subprocess.run(
-                build_segment_command(request, assets, image_strength=runtime.image_strength, image_crf=runtime.image_crf),
-                check=True,
-                cwd=str(runtime.ltx_repo_root) if runtime.ltx_repo_root is not None else None,
-            )
-            rendered_segments.append(Path(command.output_path).resolve())
         if rendered_segments and not args.skip_final_concat:
             video_only_path = _concat_video_streams(
                 rendered_segments,
@@ -926,7 +1048,7 @@ def run(argv: list[str] | None = None) -> int:
     manifest["video_only_output"] = str(video_only_path) if video_only_path is not None else None
     manifest["final_video"] = str(final_video_path) if final_video_path is not None else None
     manifest["notes"] = [
-        "Backend target: official LTX-2 a2vid two-stage pipeline via subprocess.",
+        "Backend target: official LTX-2 a2vid two-stage pipeline in-process.",
         "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
         "Final mux always restores the original source audio after segment video concatenation.",
         "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
