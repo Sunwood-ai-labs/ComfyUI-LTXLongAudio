@@ -72,6 +72,16 @@ When a run is slow or stalls, add `--debug`. The runner will emit step-by-step p
 - CUDA memory snapshots before and after each segment
 - final concat / mux timing
 
+Performance tuning is now first-class instead of hidden behind `--extra-ltx-arg`:
+
+- `--performance-profile throughput`: disables layer streaming unless you explicitly set it and defaults `--max-batch-size` to `4`
+- `--performance-profile low-vram`: enables `--streaming-prefetch-count 1` unless you explicitly override it and also defaults `--max-batch-size` to `4`
+- `--streaming-prefetch-count N`: explicit official layer-streaming control
+- `--max-batch-size N`: explicit guidance batching control
+- `--compile-transformer`: forwards to the official `--compile` flag
+
+Why this matters on L4: `--streaming-prefetch-count 1` pushes the official PromptEncoder and DiffusionStage into CPU-built layer streaming mode. That saves VRAM, but it can leave GPU utilization very low. For throughput-focused runs on a 24 GB card, start with `--performance-profile throughput` and add `--quantization fp8-cast` before falling back to streaming.
+
 Example on a GPU instance with the official repo bootstrapped under `/workspace/LTX-2`:
 
 ```bash
@@ -86,6 +96,7 @@ cd /workspace/ComfyUI-LTXLongAudio
   --ltx-repo-root /workspace/LTX-2 \
   --output-dir /workspace/ltx23-run \
   --prompt-encoder-device cpu \
+  --performance-profile low-vram \
   --run \
   --overwrite
 ```
@@ -131,8 +142,7 @@ uv run python cli/ltx23_gpu_ready.py \
   --num-inference-steps 1 \
   --quantization fp8-cast \
   --video-cfg-guidance-scale 1.0 \
-  --extra-ltx-arg=--streaming-prefetch-count \
-  --extra-ltx-arg=1 \
+  --performance-profile throughput \
   --debug \
   --run \
   --overwrite

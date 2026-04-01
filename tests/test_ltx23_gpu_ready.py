@@ -171,6 +171,100 @@ def test_text_to_video_mode_omits_image_conditioning(tmp_path: Path):
     assert "--image" not in commands[0].command
 
 
+def test_throughput_profile_prefers_gpu_residency(tmp_path: Path):
+    for name in ("checkpoint.safetensors", "distilled.safetensors", "upscaler.safetensors"):
+        (tmp_path / name).write_bytes(b"model")
+    (tmp_path / "gemma").mkdir()
+    (tmp_path / "gemma" / "config.json").write_text("{}", encoding="utf-8")
+    defaults = gpu_ready.LTX23WorkflowDefaults(
+        workflow_path=tmp_path / "workflow.json",
+        source_audio="demo.wav",
+        frames_dir="frames",
+    )
+    runtime = gpu_ready.LTX23RuntimeConfig(
+        pipeline_module="ltx_pipelines.a2vid_two_stage",
+        python_executable="python",
+        checkpoint_path=tmp_path / "checkpoint.safetensors",
+        distilled_lora_path=tmp_path / "distilled.safetensors",
+        spatial_upsampler_path=tmp_path / "upscaler.safetensors",
+        gemma_root=tmp_path / "gemma",
+        output_dir=tmp_path / "out",
+        performance_profile="throughput",
+        quantization="fp8-cast",
+        overwrite=True,
+    )
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"img")
+    segments = gpu_ready.plan_segments(1.0, 1, 8.0, [image_path], 1234)
+
+    commands = gpu_ready.build_segment_commands(
+        defaults=defaults,
+        runtime=runtime,
+        source_audio=tmp_path / "source.wav",
+        conditioning_audio=tmp_path / "conditioning.wav",
+        prompt="demo",
+        negative_prompt="bad",
+        width=256,
+        height=128,
+        fps=8.0,
+        use_text_to_video=False,
+        ltx_seed_base=420,
+        segments=segments,
+    )
+
+    first = commands[0].command
+    assert "--quantization" in first
+    assert "--streaming-prefetch-count" not in first
+    assert first[first.index("--max-batch-size") + 1] == "4"
+
+
+def test_legacy_extra_args_are_promoted_to_first_class_tuning(tmp_path: Path):
+    for name in ("checkpoint.safetensors", "distilled.safetensors", "upscaler.safetensors"):
+        (tmp_path / name).write_bytes(b"model")
+    (tmp_path / "gemma").mkdir()
+    (tmp_path / "gemma" / "config.json").write_text("{}", encoding="utf-8")
+    defaults = gpu_ready.LTX23WorkflowDefaults(
+        workflow_path=tmp_path / "workflow.json",
+        source_audio="demo.wav",
+        frames_dir="frames",
+    )
+    runtime = gpu_ready.LTX23RuntimeConfig(
+        pipeline_module="ltx_pipelines.a2vid_two_stage",
+        python_executable="python",
+        checkpoint_path=tmp_path / "checkpoint.safetensors",
+        distilled_lora_path=tmp_path / "distilled.safetensors",
+        spatial_upsampler_path=tmp_path / "upscaler.safetensors",
+        gemma_root=tmp_path / "gemma",
+        output_dir=tmp_path / "out",
+        extra_ltx_args=("--streaming-prefetch-count", "1", "--max-batch-size", "4", "--compile", "--foo", "bar"),
+        overwrite=True,
+    )
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"img")
+    segments = gpu_ready.plan_segments(1.0, 1, 8.0, [image_path], 1234)
+
+    commands = gpu_ready.build_segment_commands(
+        defaults=defaults,
+        runtime=runtime,
+        source_audio=tmp_path / "source.wav",
+        conditioning_audio=tmp_path / "conditioning.wav",
+        prompt="demo",
+        negative_prompt="bad",
+        width=256,
+        height=128,
+        fps=8.0,
+        use_text_to_video=False,
+        ltx_seed_base=420,
+        segments=segments,
+    )
+
+    first = commands[0].command
+    assert first[first.index("--streaming-prefetch-count") + 1] == "1"
+    assert first[first.index("--max-batch-size") + 1] == "4"
+    assert "--compile" in first
+    assert first[-2:] == ["--foo", "bar"]
+
+
 def test_prepared_conditioning_audio_rewrites_command_audio_path(tmp_path: Path):
     for name in ("checkpoint.safetensors", "distilled.safetensors", "upscaler.safetensors"):
         (tmp_path / name).write_bytes(b"model")

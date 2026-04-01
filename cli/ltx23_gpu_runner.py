@@ -94,6 +94,10 @@ class LTX23RuntimeConfig:
     enhance_prompt: bool = False
     video_cfg_guidance_scale: float | None = DEFAULT_VIDEO_GUIDANCE_SCALE
     prompt_encoder_device: str = "match"
+    performance_profile: str = "manual"
+    streaming_prefetch_count: int | None = None
+    max_batch_size: int | None = None
+    compile_transformer: bool = False
     debug: bool = False
     debug_log_path: Path | None = None
     run_commands: bool = False
@@ -116,6 +120,9 @@ class Ltx23Assets:
     quantization: tuple[str, ...] = ()
     enhance_prompt: bool = False
     video_cfg_guidance_scale: float | None = None
+    streaming_prefetch_count: int | None = None
+    max_batch_size: int | None = None
+    compile_transformer: bool = False
     extra_args: tuple[str, ...] = ()
 
 
@@ -462,6 +469,61 @@ def _normalize_quantization(raw: str | Sequence[str] | None) -> tuple[str, ...]:
     return values
 
 
+def _resolve_runtime_tuning(
+    *,
+    performance_profile: str,
+    streaming_prefetch_count: int | None,
+    max_batch_size: int | None,
+    compile_transformer: bool,
+    extra_ltx_args: Sequence[str],
+) -> tuple[int | None, int, bool, tuple[str, ...]]:
+    passthrough: list[str] = []
+    legacy_streaming_prefetch_count: int | None = None
+    legacy_max_batch_size: int | None = None
+    legacy_compile = False
+
+    index = 0
+    while index < len(extra_ltx_args):
+        value = str(extra_ltx_args[index])
+        if value == "--streaming-prefetch-count" and index + 1 < len(extra_ltx_args):
+            legacy_streaming_prefetch_count = int(str(extra_ltx_args[index + 1]))
+            index += 2
+            continue
+        if value == "--max-batch-size" and index + 1 < len(extra_ltx_args):
+            legacy_max_batch_size = int(str(extra_ltx_args[index + 1]))
+            index += 2
+            continue
+        if value == "--compile":
+            legacy_compile = True
+            index += 1
+            continue
+        passthrough.append(value)
+        index += 1
+
+    effective_streaming_prefetch_count = (
+        streaming_prefetch_count if streaming_prefetch_count is not None else legacy_streaming_prefetch_count
+    )
+    effective_max_batch_size = max_batch_size if max_batch_size is not None else legacy_max_batch_size
+    effective_compile = bool(compile_transformer or legacy_compile)
+
+    if performance_profile == "throughput":
+        if streaming_prefetch_count is None and legacy_streaming_prefetch_count is None:
+            effective_streaming_prefetch_count = None
+        if max_batch_size is None and legacy_max_batch_size is None:
+            effective_max_batch_size = 4
+    elif performance_profile == "low-vram":
+        if streaming_prefetch_count is None and legacy_streaming_prefetch_count is None:
+            effective_streaming_prefetch_count = 1
+        if max_batch_size is None and legacy_max_batch_size is None:
+            effective_max_batch_size = 4
+
+    return (
+        effective_streaming_prefetch_count,
+        max(int(effective_max_batch_size or 1), 1),
+        effective_compile,
+        tuple(passthrough),
+    )
+
 def build_segment_command(
     request: SegmentRenderRequest,
     assets: Ltx23Assets,
@@ -511,10 +573,16 @@ def build_segment_command(
         command.extend(["--image", request.image_path, "0", str(image_strength), str(image_crf)])
     if assets.quantization:
         command.extend(["--quantization", *assets.quantization])
+    if assets.compile_transformer:
+        command.append("--compile")
     if assets.enhance_prompt:
         command.append("--enhance-prompt")
     if assets.video_cfg_guidance_scale is not None:
         command.extend(["--video-cfg-guidance-scale", str(assets.video_cfg_guidance_scale)])
+    if assets.streaming_prefetch_count is not None:
+        command.extend(["--streaming-prefetch-count", str(assets.streaming_prefetch_count)])
+    if assets.max_batch_size is not None and assets.max_batch_size > 1:
+        command.extend(["--max-batch-size", str(assets.max_batch_size)])
     command.extend(list(assets.extra_args))
     return command
 
@@ -535,6 +603,18 @@ def build_segment_commands(
     segments: Sequence[Any],
     prepared_audio_paths: dict[int, Path] | None = None,
 ) -> list[SegmentCommand]:
+    (
+        effective_streaming_prefetch_count,
+        effective_max_batch_size,
+        effective_compile_transformer,
+        passthrough_extra_args,
+    ) = _resolve_runtime_tuning(
+        performance_profile=runtime.performance_profile,
+        streaming_prefetch_count=runtime.streaming_prefetch_count,
+        max_batch_size=runtime.max_batch_size,
+        compile_transformer=runtime.compile_transformer,
+        extra_ltx_args=runtime.extra_ltx_args,
+    )
     assets = Ltx23Assets(
         ltx_python=str(runtime.python_executable),
         checkpoint_path=str(runtime.checkpoint_path or "<checkpoint-path>"),
@@ -548,7 +628,10 @@ def build_segment_commands(
         quantization=_normalize_quantization(runtime.quantization),
         enhance_prompt=runtime.enhance_prompt,
         video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
-        extra_args=tuple(runtime.extra_ltx_args),
+        streaming_prefetch_count=effective_streaming_prefetch_count,
+        max_batch_size=effective_max_batch_size,
+        compile_transformer=effective_compile_transformer,
+        extra_args=passthrough_extra_args,
     )
     conditioning_path = str((conditioning_audio or source_audio).expanduser().resolve())
     normalized_width = _normalize_dimension(width)
@@ -1110,6 +1193,10 @@ def _build_runtime_config(args: argparse.Namespace, output_dir: Path) -> LTX23Ru
         enhance_prompt=bool(args.enhance_prompt),
         video_cfg_guidance_scale=args.video_cfg_guidance_scale,
         prompt_encoder_device=str(args.prompt_encoder_device),
+        performance_profile=str(args.performance_profile),
+        streaming_prefetch_count=args.streaming_prefetch_count,
+        max_batch_size=args.max_batch_size,
+        compile_transformer=bool(args.compile_transformer),
         debug=bool(args.debug or args.debug_log is not None),
         debug_log_path=_resolve_debug_log_path(bool(args.debug), args.debug_log, output_dir),
         run_commands=bool(args.run),
@@ -1161,6 +1248,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--enhance-prompt", action="store_true")
     parser.add_argument("--video-cfg-guidance-scale", type=float, default=DEFAULT_VIDEO_GUIDANCE_SCALE)
     parser.add_argument("--prompt-encoder-device", default=os.environ.get("LTX2_PROMPT_ENCODER_DEVICE", "match"))
+    parser.add_argument(
+        "--performance-profile",
+        choices=("manual", "throughput", "low-vram"),
+        default="manual",
+        help="throughput keeps models GPU-resident when possible; low-vram enables streaming defaults; manual preserves explicit tuning only.",
+    )
+    parser.add_argument("--streaming-prefetch-count", type=int, default=None, help="Official layer-streaming prefetch count.")
+    parser.add_argument("--max-batch-size", type=int, default=None, help="Official guidance batching size per transformer call.")
+    parser.add_argument("--compile-transformer", action="store_true", help="Enable official --compile transformer mode.")
     parser.add_argument("--debug", action="store_true", help="Emit step-by-step debug progress and write a JSONL debug log.")
     parser.add_argument("--debug-log", default=None, help="Optional path for the JSONL debug log.")
     parser.add_argument("--extra-ltx-arg", action="append", default=[])
@@ -1228,6 +1324,10 @@ def run(argv: list[str] | None = None) -> int:
         height=height,
         use_text_to_video=use_text_to_video,
         prompt_encoder_device=runtime.prompt_encoder_device,
+        performance_profile=runtime.performance_profile,
+        streaming_prefetch_count=runtime.streaming_prefetch_count,
+        max_batch_size=runtime.max_batch_size,
+        compile_transformer=runtime.compile_transformer,
     )
     if runtime.run_commands or runtime.emit_run_script:
         runtime = LTX23RuntimeConfig(
@@ -1247,6 +1347,10 @@ def run(argv: list[str] | None = None) -> int:
             enhance_prompt=runtime.enhance_prompt,
             video_cfg_guidance_scale=runtime.video_cfg_guidance_scale,
             prompt_encoder_device=runtime.prompt_encoder_device,
+            performance_profile=runtime.performance_profile,
+            streaming_prefetch_count=runtime.streaming_prefetch_count,
+            max_batch_size=runtime.max_batch_size,
+            compile_transformer=runtime.compile_transformer,
             debug=runtime.debug,
             debug_log_path=runtime.debug_log_path,
             run_commands=runtime.run_commands,
@@ -1371,6 +1475,10 @@ def run(argv: list[str] | None = None) -> int:
     manifest["ltx_seed_base"] = ltx_seed_base
     manifest["pipeline_module"] = runtime.pipeline_module
     manifest["prompt_encoder_device"] = runtime.prompt_encoder_device
+    manifest["performance_profile"] = runtime.performance_profile
+    manifest["streaming_prefetch_count"] = runtime.streaming_prefetch_count
+    manifest["max_batch_size"] = runtime.max_batch_size
+    manifest["compile_transformer"] = runtime.compile_transformer
     manifest["ltx_repo_root"] = str(runtime.ltx_repo_root) if runtime.ltx_repo_root is not None else None
     manifest["run_script"] = str(run_script_path) if run_script_path is not None else None
     manifest["command_preview"] = [segment.command for segment in segment_commands]
@@ -1385,6 +1493,7 @@ def run(argv: list[str] | None = None) -> int:
         "Final mux always restores the original source audio after segment video concatenation.",
         "If use_only_vocals is enabled in the workflow, pass --conditioning-audio with a prepared stem.",
         f"Prompt encoder device override: {runtime.prompt_encoder_device}.",
+        f"Performance profile: {runtime.performance_profile}.",
         "Use --debug to emit step-by-step progress plus a JSONL debug log.",
         "Resolution is normalized down to multiples of 64 for the official two-stage backend.",
     ]
@@ -1396,6 +1505,13 @@ def run(argv: list[str] | None = None) -> int:
     print(f"Conditioning audio: {Path(conditioning_audio).resolve()}")
     print(f"Frames: {Path(frames_dir).resolve()}")
     print(f"Segments planned: {len(segment_commands)}")
+    print(
+        "Runtime tuning: "
+        f"profile={runtime.performance_profile}, "
+        f"streaming_prefetch_count={runtime.streaming_prefetch_count}, "
+        f"max_batch_size={runtime.max_batch_size}, "
+        f"compile_transformer={runtime.compile_transformer}"
+    )
     print(f"Manifest: {manifest_path}")
     if runtime.debug_log_path is not None:
         print(f"Debug log: {runtime.debug_log_path}")
