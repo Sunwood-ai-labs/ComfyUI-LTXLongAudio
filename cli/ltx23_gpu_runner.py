@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -178,6 +178,7 @@ class RunDebugLogger:
     enabled: bool = False
     log_path: Path | None = None
     echo: bool = False
+    events: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.enabled or self.log_path is None:
@@ -186,13 +187,14 @@ class RunDebugLogger:
         self.log_path.write_text("", encoding="utf-8")
 
     def event(self, name: str, **fields: Any) -> None:
-        if not self.enabled:
-            return
         payload = {
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
             "event": name,
             **{key: _json_safe(value) for key, value in fields.items()},
         }
+        self.events.append(payload)
+        if not self.enabled:
+            return
         line = json.dumps(payload, ensure_ascii=True)
         if self.log_path is not None:
             with self.log_path.open("a", encoding="utf-8") as handle:
@@ -226,6 +228,76 @@ def _resolve_debug_log_path(debug: bool, debug_log: str | Path | None, output_di
     if debug:
         return (output_dir / "ltx23_debug.jsonl").resolve()
     return None
+
+
+def _build_timing_summary(events: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "runtime_load_seconds": None,
+        "pipeline_build_seconds": None,
+        "pipeline_phases": {},
+        "segment_pipeline_seconds": {},
+        "segment_encode_seconds": {},
+        "video_concat_seconds": None,
+        "final_mux_seconds": None,
+    }
+    for event in events:
+        name = str(event.get("event", ""))
+        if name == "runtime_loaded":
+            summary["runtime_load_seconds"] = event.get("seconds")
+        elif name == "pipeline_build_done":
+            summary["pipeline_build_seconds"] = event.get("seconds")
+        elif name == "pipeline_phase_done":
+            phase = str(event.get("phase", "unknown"))
+            phase_key = phase
+            call_index = event.get("call_index")
+            if isinstance(call_index, int) and call_index > 1:
+                phase_key = f"{phase}#{call_index}"
+            summary["pipeline_phases"][phase_key] = {
+                "seconds": event.get("seconds"),
+                "call_index": call_index,
+                "segment_index": event.get("segment_index"),
+            }
+        elif name == "segment_pipeline_done":
+            segment_index = int(event.get("segment_index", 0))
+            summary["segment_pipeline_seconds"][str(segment_index)] = event.get("seconds")
+        elif name == "segment_encode_done":
+            segment_index = int(event.get("segment_index", 0))
+            summary["segment_encode_seconds"][str(segment_index)] = event.get("seconds")
+        elif name == "video_concat_done":
+            summary["video_concat_seconds"] = event.get("seconds")
+        elif name == "final_mux_done":
+            summary["final_mux_seconds"] = event.get("seconds")
+    return summary
+
+
+def _format_timing_summary_lines(summary: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if summary.get("runtime_load_seconds") is not None:
+        lines.append(f"Runtime load: {summary['runtime_load_seconds']}s")
+    if summary.get("pipeline_build_seconds") is not None:
+        lines.append(f"Pipeline build: {summary['pipeline_build_seconds']}s")
+    pipeline_phases = summary.get("pipeline_phases") or {}
+    if pipeline_phases:
+        phase_parts = [
+            f"{phase}={details.get('seconds')}s"
+            for phase, details in pipeline_phases.items()
+            if details.get("seconds") is not None
+        ]
+        if phase_parts:
+            lines.append("Pipeline phases: " + ", ".join(phase_parts))
+    segment_pipeline = summary.get("segment_pipeline_seconds") or {}
+    if segment_pipeline:
+        segment_parts = [f"segment_{key}={value}s" for key, value in segment_pipeline.items()]
+        lines.append("Segment pipeline: " + ", ".join(segment_parts))
+    segment_encode = summary.get("segment_encode_seconds") or {}
+    if segment_encode:
+        encode_parts = [f"segment_{key}={value}s" for key, value in segment_encode.items()]
+        lines.append("Segment encode: " + ", ".join(encode_parts))
+    if summary.get("video_concat_seconds") is not None:
+        lines.append(f"Concat: {summary['video_concat_seconds']}s")
+    if summary.get("final_mux_seconds") is not None:
+        lines.append(f"Final mux: {summary['final_mux_seconds']}s")
+    return lines
 
 
 def _maybe_torch_cuda_synchronize(device: Any) -> None:
@@ -1688,6 +1760,7 @@ def run(argv: list[str] | None = None) -> int:
     manifest["video_only_output"] = str(video_only_path) if video_only_path is not None else None
     manifest["final_video"] = str(final_video_path) if final_video_path is not None else None
     manifest["debug_log"] = str(runtime.debug_log_path) if runtime.debug_log_path is not None else None
+    manifest["timings"] = _build_timing_summary(debug_logger.events)
     manifest["notes"] = [
         "Backend target: official LTX-2 a2vid two-stage pipeline in-process.",
         "Segment commands use full audio plus --audio-start-time/--audio-max-duration.",
@@ -1718,6 +1791,8 @@ def run(argv: list[str] | None = None) -> int:
     print(f"Manifest: {manifest_path}")
     if runtime.debug_log_path is not None:
         print(f"Debug log: {runtime.debug_log_path}")
+    for line in _format_timing_summary_lines(manifest["timings"]):
+        print(line)
     if run_script_path is not None:
         print(f"Run script: {run_script_path}")
     if final_video_path is not None:

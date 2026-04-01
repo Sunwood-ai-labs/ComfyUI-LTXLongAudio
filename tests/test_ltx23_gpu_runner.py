@@ -18,6 +18,7 @@ from cli.ltx23_gpu_runner import (
     LTX23WorkflowDefaults,
     Ltx23Assets,
     SegmentRenderRequest,
+    _build_timing_summary,
     build_segment_command,
     build_segment_commands,
     main,
@@ -573,3 +574,27 @@ def test_build_in_process_pipeline_applies_stage2_default_batch_size(tmp_path: P
             "max_batch_size": 4,
         }
     ]
+
+
+def test_build_timing_summary_collects_phase_and_segment_timings() -> None:
+    summary = _build_timing_summary(
+        [
+            {"event": "runtime_loaded", "seconds": 7.9},
+            {"event": "pipeline_build_done", "seconds": 0.15},
+            {"event": "pipeline_phase_done", "phase": "prompt_encoder", "call_index": 1, "seconds": 54.9},
+            {"event": "pipeline_phase_done", "phase": "image_conditioner", "call_index": 2, "seconds": 0.6},
+            {"event": "segment_pipeline_done", "segment_index": 1, "seconds": 457.9},
+            {"event": "segment_encode_done", "segment_index": 1, "seconds": 10.5},
+            {"event": "video_concat_done", "seconds": 0.7},
+            {"event": "final_mux_done", "seconds": 0.8},
+        ]
+    )
+
+    assert summary["runtime_load_seconds"] == 7.9
+    assert summary["pipeline_build_seconds"] == 0.15
+    assert summary["pipeline_phases"]["prompt_encoder"]["seconds"] == 54.9
+    assert summary["pipeline_phases"]["image_conditioner#2"]["seconds"] == 0.6
+    assert summary["segment_pipeline_seconds"] == {"1": 457.9}
+    assert summary["segment_encode_seconds"] == {"1": 10.5}
+    assert summary["video_concat_seconds"] == 0.7
+    assert summary["final_mux_seconds"] == 0.8

@@ -73,6 +73,8 @@ When a run is slow or stalls, add `--debug`. The runner will emit step-by-step p
 - CUDA memory snapshots before and after each segment
 - final concat / mux timing
 
+The manifest now also includes a `timings` section with the aggregated stage durations, and the runner prints the same summary to stdout after each run. That makes it easy to compare `prompt_encoder`, `stage_1`, `stage_2`, `video_decoder`, segment pipeline time, encode time, concat time, and final mux time without manually parsing the JSONL log.
+
 Performance tuning is now first-class instead of hidden behind `--extra-ltx-arg`:
 
 - `--performance-profile throughput`: disables layer streaming unless you explicitly set it and defaults `--max-batch-size` to `4`
