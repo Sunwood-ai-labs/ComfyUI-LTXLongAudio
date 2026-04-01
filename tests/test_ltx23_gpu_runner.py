@@ -5,10 +5,13 @@ import sys
 import wave
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import cli.ltx23_gpu_runner as gpu_runner
 from cli.ltx23_gpu_runner import (
     LTX23RuntimeConfig,
     LTX23WorkflowDefaults,
@@ -195,3 +198,25 @@ def test_main_writes_gpu_manifest_without_running(tmp_path: Path):
     assert manifest["width"] == 832
     assert len(manifest["command_preview"]) == 2
     assert manifest["rendered_segments"] == []
+
+
+def test_mux_original_audio_trims_to_source_duration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    captured: list[str] = []
+    video_path = tmp_path / "video.mp4"
+    audio_path = tmp_path / "audio.wav"
+    output_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+    _write_wave_file(audio_path, frame_rate=10, frame_count=123)
+
+    def fake_run(command, **kwargs):  # type: ignore[no-untyped-def]
+        captured.extend(command)
+        return None
+
+    monkeypatch.setattr(gpu_runner, "_ffmpeg_executable", lambda: "ffmpeg")
+    monkeypatch.setattr(gpu_runner.subprocess, "run", fake_run)
+
+    result = gpu_runner._mux_original_audio(video_path, audio_path, output_path, overwrite=True)
+
+    assert result == output_path
+    assert "-t" in captured
+    assert captured[captured.index("-t") + 1] == "12.300000"

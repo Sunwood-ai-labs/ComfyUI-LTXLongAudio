@@ -316,6 +316,7 @@ def test_run_writes_manifest_and_script_without_running(tmp_path: Path, monkeypa
     assert conditioning_chunk.exists()
     assert payload["segment_commands"]
     assert payload["segment_commands"][0]["command"][2] == "ltx_pipelines.a2vid_two_stage"
+    assert "-t 25.000000" in script_path.read_text(encoding="utf-8")
     with wave.open(str(conditioning_chunk), "rb") as reader:
         assert reader.getnchannels() == 2
 

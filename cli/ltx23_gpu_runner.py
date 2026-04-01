@@ -538,7 +538,12 @@ def _concat_video_streams(segment_paths: Sequence[Path], output_path: Path, *, o
     return output_path
 
 
+def _format_media_duration(duration_seconds: float) -> str:
+    return f"{max(float(duration_seconds), 0.0):.6f}"
+
+
 def _mux_original_audio(video_path: Path, audio_path: Path, output_path: Path, *, overwrite: bool) -> Path:
+    source_duration = _format_media_duration(probe_audio_info(audio_path).duration_seconds)
     command = [
         _ffmpeg_executable(),
         "-y" if overwrite else "-n",
@@ -557,6 +562,8 @@ def _mux_original_audio(video_path: Path, audio_path: Path, output_path: Path, *
         "-b:a",
         "192k",
         "-shortest",
+        "-t",
+        source_duration,
         str(output_path),
     ]
     subprocess.run(command, check=True, capture_output=True)
@@ -580,6 +587,7 @@ def _emit_run_script(
     concat_path = runtime.output_dir.expanduser().resolve() / "segments_concat.txt"
     video_only_path = runtime.output_dir.expanduser().resolve() / f"{output_prefix}_video_only.mp4"
     final_path = runtime.output_dir.expanduser().resolve() / f"{output_prefix}.mp4"
+    source_duration = _format_media_duration(probe_audio_info(source_audio).duration_seconds)
 
     lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
     if runtime.ltx_repo_root is not None:
@@ -630,6 +638,8 @@ def _emit_run_script(
                         "-b:a",
                         "192k",
                         "-shortest",
+                        "-t",
+                        source_duration,
                         str(final_path),
                     ]
                 ),
